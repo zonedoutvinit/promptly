@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import http from "http";
 
 const app = express();
 const PORT = 5001; // Using 5001 to avoid common system conflicts
