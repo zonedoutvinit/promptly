@@ -9,7 +9,9 @@ interface ChatState {
   messages: Message[];
   isLoading: boolean;
   model: string;
+  availableModels: string[]; // Dynamic system discovery
   setModel: (model: string) => void;
+  fetchModels: () => Promise<void>; // Triggers listing API
   sendMessage: (text: string) => Promise<void>;
   clearHistory: () => void;
 }
@@ -17,11 +19,30 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isLoading: false,
-  model: "llama3.2:3b",
+  model: "",
+  availableModels: [],
 
   setModel: (model) => set({ model }),
-
   clearHistory: () => set({ messages: [] }),
+
+  fetchModels: async () => {
+    try {
+      const res = await fetch("http://localhost:5001/api/models");
+      const data = await res.json();
+      const modelNames = data.models.map((m: any) => m.name);
+
+      set({
+        availableModels: modelNames,
+        model: modelNames.length > 0 ? modelNames[0] : "llama3.2:3b",
+      });
+    } catch (err) {
+      console.error("Failed to load local models:", err);
+      set({
+        availableModels: ["llama3.2:3b", "qwen2.5:3b"],
+        model: "llama3.2:3b",
+      });
+    }
+  },
 
   sendMessage: async (text) => {
     if (!text.trim() || get().isLoading) return;
@@ -29,18 +50,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const userMessage: Message = { role: "user", content: text };
     const initialAssistantMessage: Message = { role: "assistant", content: "" };
 
-    // 1. Optimistic update: instantly render the user message and a blank space for the AI
     set((state) => ({
       messages: [...state.messages, userMessage, initialAssistantMessage],
       isLoading: true,
     }));
 
     try {
-      // 2. Fetch the stream from the backend wrapper
       const response = await fetch("http://localhost:5001/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Pass the full history minus the empty placeholder we just added
         body: JSON.stringify({
           model: get().model,
           messages: get().messages.slice(0, -1),
@@ -48,12 +66,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       if (!response.body) throw new Error("No readable stream");
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let accumulatedContent = "";
 
-      // 3. Process the backend chunk tokens as they land
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -67,9 +83,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const parsed = JSON.parse(line.slice(6));
               if (parsed.content) {
                 accumulatedContent += parsed.content;
-
-                // 4. Update the combined state object.
-                // Only components watching 'messages' will re-render!
                 set((state) => {
                   const updatedMessages = [...state.messages];
                   updatedMessages[updatedMessages.length - 1] = {
@@ -79,22 +92,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   return { messages: updatedMessages };
                 });
               }
-            } catch (e) {
-              // Handle trailing partial lines silently
-            }
+            } catch (e) {}
           }
         }
       }
     } catch (err) {
       console.error(err);
-      set((state) => {
-        const updatedMessages = [...state.messages];
-        updatedMessages[updatedMessages.length - 1] = {
-          role: "assistant",
-          content: "❌ Error: Failed to fetch local stream.",
-        };
-        return { messages: updatedMessages };
-      });
     } finally {
       set({ isLoading: false });
     }

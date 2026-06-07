@@ -64,6 +64,36 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// Listing API to discover locally installed models
+app.get("/api/models", async (req, res) => {
+  try {
+    const ollamaResponse = await fetch("http://127.0.0.1:11434/api/tags");
+
+    if (!ollamaResponse.ok) {
+      throw new Error("Failed to fetch tags from Ollama daemon");
+    }
+
+    const data = await ollamaResponse.json();
+
+    // Map out just the clean model names
+    const models = data.models.map((m: any) => ({
+      name: m.name,
+      size: m.size,
+      details: m.details,
+    }));
+
+    res.json({ success: true, models });
+  } catch (error) {
+    console.error("Model Discovery Error:", error);
+    // Fallback list so the UI never breaks completely if Ollama is asleep
+    res.status(500).json({
+      success: false,
+      error: "Could not discover local models",
+      models: [{ name: "llama3.2:3b" }, { name: "qwen2.5:3b" }],
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Promptly Backend humming along at http://localhost:${PORT}`);
 });
