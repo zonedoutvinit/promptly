@@ -1,3 +1,4 @@
+// src/components/PromptOptions.tsx
 import React, { useState } from "react";
 import { genericOptions } from "../utils/chatHelpers";
 
@@ -15,11 +16,10 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
   onSubmit,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
-
   const hasDynamicPrompts = dynamicSuggestedPrompts.length > 0;
 
   return (
-    <div className="flex flex-col gap-3 animate-fade-in">
+    <div className="flex flex-col gap-3">
       {/* Control Bar Header */}
       <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
         {hasDynamicPrompts ? (
@@ -53,7 +53,6 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
           </span>
         )}
 
-        {/* Dynamic Expand/Collapse Toggle Button */}
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
@@ -65,7 +64,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
             viewBox="0 0 20 20"
             fill="currentColor"
             className={`w-4 h-4 transform transition-transform duration-200 ${
-              isExpanded ? "" : "-rotate-180" // 🔄 Points downwards when open, flips up when closed
+              isExpanded ? "" : "-rotate-180"
             }`}
           >
             <path
@@ -77,16 +76,16 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
         </button>
       </div>
 
-      {/* Conditional Content Tray Section with Smooth Structural Entry */}
+      {/* Content Tray Section with Stagger-friendly Entry */}
       {isExpanded && (
-        <div className="flex flex-wrap gap-2 items-center min-h-9.5 animate-fade-in">
+        <div className="flex flex-wrap gap-2 items-center min-h-9.5">
           {activeTab === "dynamic" && hasDynamicPrompts
             ? dynamicSuggestedPrompts.map((promptText, i) => (
                 <button
                   key={`dynamic-${i}`}
                   type="button"
                   onClick={() => onSubmit(promptText)}
-                  className="text-xs bg-indigo-950/30 hover:bg-indigo-900/50 text-indigo-300 border border-indigo-900/40 px-3 py-2 rounded-lg transition text-left truncate max-w-xs"
+                  className="text-xs bg-indigo-950/30 hover:bg-indigo-900/50 text-indigo-300 border border-indigo-900/40 px-3 py-2 rounded-lg transition text-left truncate max-w-xs animate-chipFade"
                 >
                   "{promptText}"
                 </button>
@@ -96,7 +95,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
                   key={`generic-${i}`}
                   type="button"
                   onClick={() => onSubmit(opt.prompt)}
-                  className="text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-800 px-3 py-2 rounded-lg transition"
+                  className="text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-800 px-3 py-2 rounded-lg transition animate-chipFade"
                 >
                   {opt.label}
                 </button>

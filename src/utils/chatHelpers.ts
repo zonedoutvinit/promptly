@@ -1,3 +1,5 @@
+// src/utils/chatHelpers.ts
+
 export const genericOptions = [
   {
     label: "Deepen Analysis",
@@ -21,6 +23,12 @@ export const genericOptions = [
 ];
 
 export const fillerBlacklist = [
+  // --- Broad Universal Triggers (Catch-alls) ---
+  "do you want to",
+  "would you like",
+  "would you want",
+  "let me know if",
+
   // --- Conversational Next Steps / Endings ---
   "what's next",
   "whats next",
@@ -44,8 +52,6 @@ export const fillerBlacklist = [
   "lets dive",
   "happy to explore",
   "gladly talk about",
-
-  // --- Questions & Invitations ---
   "do you want to know",
   "do you want to explore",
   "do you want to talk",
@@ -62,8 +68,6 @@ export const fillerBlacklist = [
   "tell me what",
   "tell me which",
   "tell me how",
-
-  // --- Meta Context Setups ---
   "can you talk about",
   "can we talk about",
   "can we discuss",
@@ -87,58 +91,38 @@ export const fillerBlacklist = [
   "for example:",
 ];
 
-export const cleanMarkdownText = (str: string): string => {
-  return str
-    .replace(/[\*\-_]+/g, "")
-    .replace(/^[\s\-\*•\d\.\)]+/, "")
-    .replace(/:\s*$/, "")
-    .trim();
-};
-
 export const isValidPrompt = (str: string): boolean => {
   const lower = str.toLowerCase().trim();
 
-  // 1. Check strict substring match from blacklist first (Fast path)
+  // 1. Strict Substring Match (The Shield)
+  // If the suggestion contains any exact phrase from our blacklist, kill it immediately.
   const isStrictFiller = fillerBlacklist.some((filler) =>
     lower.includes(filler),
   );
   if (isStrictFiller) return false;
 
-  // 2. Length-based cleanups
-  if (lower.length < 8) return false;
+  // 2. Structural Length Guard
+  if (lower.length < 5) return false;
 
-  // 3. 🧠 Fuzzy Match Overlap Scoring Engine (No external dependencies)
-  const candidateWords = lower
-    .replace(/[?.,\/#!$%\^&\*;:{}=\-_`~()]/g, "")
-    .split(/\s+/)
-    .filter((w) => w.length > 1);
-  if (candidateWords.length === 0) return false;
-
-  // Create a set of all individual filler words from your blacklist
-  const uniqueFillerWords = new Set<string>();
-  fillerBlacklist.forEach((phrase) => {
-    phrase.split(/\s+/).forEach((word) => {
-      if (word.length > 1) uniqueFillerWords.add(word);
-    });
-  });
-
-  // Count how many words in the candidate string exist in our filler dictionary
-  let fillerWordCount = 0;
-  candidateWords.forEach((word) => {
-    if (uniqueFillerWords.has(word)) {
-      fillerWordCount++;
-    }
-  });
-
-  // Calculate score (percentage of filler words making up the string)
-  const overlapScore = fillerWordCount / candidateWords.length;
-
-  // If collectively more than 40% of the string consists of filler words, block it!
-  if (overlapScore >= 0.4) {
+  // 3. Sentence Structure Guard
+  // Real topic paths extracted from lists or colons shouldn't read like an unfinished question starting with auxiliary verbs.
+  if (
+    lower.startsWith("why do you") ||
+    lower.startsWith("how do you") ||
+    lower.startsWith("do you need")
+  ) {
     return false;
   }
 
   return true;
+};
+
+export const cleanMarkdownText = (str: string): string => {
+  return str
+    .replace(/[\*\-_]+/g, "") // Strip markdown bold/italics markers
+    .replace(/^[^a-zA-Z0-9\s]+/, "") // Safely clean non-alphanumeric prefixes WITHOUT over-stripping spaces
+    .replace(/:\s*$/, "") // Strip trailing colons
+    .trim();
 };
 
 export const getModelSuggestedPrompts = (
@@ -149,12 +133,12 @@ export const getModelSuggestedPrompts = (
   const text = lastMessage.content;
   const suggestions: string[] = [];
 
-  // Identify if the assistant is setting up alternative branch choices
   const isInvitation =
     text.includes("?") ||
     text.includes(":") ||
     text.toLowerCase().includes("interested in") ||
-    text.toLowerCase().includes("mood for");
+    text.toLowerCase().includes("mood for") ||
+    text.toLowerCase().includes("here are");
 
   if (isInvitation) {
     const lines = text.split("\n");
@@ -163,45 +147,48 @@ export const getModelSuggestedPrompts = (
       let trimmedLine = line.trim();
       if (!trimmedLine) continue;
 
-      // 1. Detect standard colon-separated options (e.g., "**Food history:** text" or "Types of dishes:")
-      if (trimmedLine.includes(":")) {
-        // Find the first colon split
-        const parts = trimmedLine.split(":");
-        const rawHeader = parts[0].trim();
+      // 🛑 NEW/ENHANCED STRATEGY 1: Detect structural splits using either Colons OR Question Marks
+      // This catches "Explore different cuisines? Tell me..." by splitting on the "?"
+      const delimiter = trimmedLine.includes(":")
+        ? ":"
+        : trimmedLine.includes("?")
+          ? "?"
+          : null;
 
-        // Clean out markdown bold/bullet indicators safely
+      if (delimiter) {
+        const parts = trimmedLine.split(delimiter);
+        const rawHeader = parts[0].trim();
         const cleanHeader = cleanMarkdownText(rawHeader);
 
-        // Validate the extracted header criteria
         if (
-          cleanHeader.length >= 4 &&
-          cleanHeader.length < 50 &&
-          /^[A-Z]/.test(cleanHeader) && // Must start with an uppercase topic letter
+          cleanHeader.length >= 2 &&
+          cleanHeader.length < 60 &&
           isValidPrompt(cleanHeader)
         ) {
-          // Format as a crisp, clickable query path
+          // Re-attach the question mark cleanly so it presents beautifully as a path choice
           const finalPrompt = cleanHeader.endsWith("?")
             ? cleanHeader
             : `${cleanHeader}?`;
 
           if (!suggestions.includes(finalPrompt)) {
             suggestions.push(finalPrompt);
-            continue; // Move to the next line successfully
+            continue; // Successfully extracted, skip fallback strategies for this line
           }
         }
       }
 
-      // 2. Fallback Strategy: Handle raw explicit list items or bullet lines that don't have colons
+      // 2. Fallback Strategy: Handle raw list items or bullet lines without clear delimiters
       if (/^[\s\-\*•\d\.\)]+/.test(trimmedLine)) {
         const cleanLine = cleanMarkdownText(trimmedLine);
         if (
           isValidPrompt(cleanLine) &&
-          cleanLine.length > 8 &&
+          cleanLine.length > 4 &&
           cleanLine.length < 75
         ) {
           const formattedPrompt = cleanLine.endsWith("?")
             ? cleanLine
             : `${cleanLine}?`;
+
           if (!suggestions.includes(formattedPrompt)) {
             suggestions.push(formattedPrompt);
           }
@@ -210,9 +197,9 @@ export const getModelSuggestedPrompts = (
     }
   }
 
-  // 3. Last Resort Fallback: Parse explicit double-quoted options if structural extraction yielded nothing
+  // 3. Quote Fallback Pass
   if (suggestions.length === 0) {
-    const quoteRegex = /"([^"\n]{12,65})"/g;
+    const quoteRegex = /"([^"\n]{6,65})"/g;
     let quoteMatch;
     while ((quoteMatch = quoteRegex.exec(text)) !== null) {
       const cleanQuote = cleanMarkdownText(quoteMatch[1]);
@@ -220,6 +207,7 @@ export const getModelSuggestedPrompts = (
         const formattedQuote = cleanQuote.endsWith("?")
           ? cleanQuote
           : `${cleanQuote}?`;
+
         if (!suggestions.includes(formattedQuote)) {
           suggestions.push(formattedQuote);
         }

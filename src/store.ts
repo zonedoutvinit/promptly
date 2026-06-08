@@ -53,7 +53,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setModel: (model: string) => {
     set({ model });
     // If inside a session, lock the model selection update to that session meta record
-    const { currentSessionId, messages, sessions } = get();
+    const { currentSessionId, sessions } = get();
     if (currentSessionId) {
       const currentSession = sessions.find((s) => s.id === currentSessionId);
       if (currentSession) {

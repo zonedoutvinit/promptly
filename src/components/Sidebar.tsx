@@ -1,3 +1,4 @@
+// src/components/Sidebar.tsx
 import React from "react";
 import { ChatSession } from "../utils/db";
 
@@ -23,12 +24,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       className={`h-screen bg-zinc-950 border-r border-zinc-900 flex flex-col justify-between transition-all duration-300 ease-in-out select-none shrink-0 ${
-        isOpen ? "w-64" : "w-0 overflow-hidden border-r-0"
+        isOpen
+          ? "w-64 opacity-100 translate-x-0"
+          : "w-0 opacity-0 -translate-x-full overflow-hidden border-r-0"
       }`}
     >
-      <div className="flex flex-col h-full overflow-hidden">
+      {/*
+        This nested wrapper enforces our 240px layout structure.
+        Without this, shrinking the width to 0 causes standard text elements to scramble vertically during the 300ms window.
+      */}
+      <div className="flex flex-col h-full w-64 overflow-hidden">
         {/* Header Title Controls */}
-        <div className="p-4 border-b border-zinc-900 flex items-center justify-between min-w-60">
+        <div className="p-4 border-b border-zinc-900 flex items-center justify-between">
           <span className="text-xs font-bold tracking-wider uppercase text-zinc-400">
             Recent Chats
           </span>
@@ -40,8 +47,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* ➕ Gemini-Style "New Chat" Action Button */}
-        <div className="p-3 min-w-60">
+        {/* Gemini-Style "New Chat" Action Button */}
+        <div className="p-3">
           <button
             onClick={onNewChat}
             className="w-full bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition"
@@ -51,7 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Chat Sessions Index Column List */}
-        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1 min-w-60">
+        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
           {sessions.map((session) => {
             const isActive = currentSessionId === session.id;
             return (
@@ -100,7 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <div className="p-4 border-t border-zinc-900 text-[10px] text-zinc-600 font-mono min-w-60">
+      <div className="p-4 border-t border-zinc-900 text-[10px] text-zinc-600 font-mono w-64">
         Sandbox: <span className="text-emerald-600">Local Threads Indexed</span>
       </div>
     </aside>
