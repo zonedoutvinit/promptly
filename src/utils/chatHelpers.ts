@@ -23,13 +23,14 @@ export const genericOptions = [
 ];
 
 export const fillerBlacklist = [
-  // --- Broad Universal Triggers (Catch-alls) ---
   "do you want to",
   "would you like",
   "would you want",
   "let me know if",
-
-  // --- Conversational Next Steps / Endings ---
+  "for example",
+  "such as",
+  "here is an example",
+  "an example of",
   "what's next",
   "whats next",
   "let me know",
@@ -91,21 +92,50 @@ export const fillerBlacklist = [
   "for example:",
 ];
 
+export const cleanMarkdownText = (str: string): string => {
+  return str
+    .replace(/[\*\-_]+/g, "")
+    .replace(/^[^a-zA-Z0-9\s]+/, "")
+    .replace(/:\s*$/, "")
+    .trim();
+};
+
 export const isValidPrompt = (str: string): boolean => {
   const lower = str.toLowerCase().trim();
 
-  // 1. Strict Substring Match (The Shield)
-  // If the suggestion contains any exact phrase from our blacklist, kill it immediately.
+  // 1. Core Conversational Greeting Filter (Global Guard)
+  // If a string behaves like a system greeting or user-facing welcome dialogue, drop it!
+  if (
+    lower.startsWith("hello") ||
+    lower.startsWith("hi ") ||
+    lower.startsWith("hey") ||
+    lower.startsWith("welcome") ||
+    lower.startsWith("how can i") ||
+    lower.includes("help you today") ||
+    lower.includes("how can i help")
+  ) {
+    return false;
+  }
+
+  // 2. Strict Substring Match
   const isStrictFiller = fillerBlacklist.some((filler) =>
     lower.includes(filler),
   );
   if (isStrictFiller) return false;
 
-  // 2. Structural Length Guard
+  // 3. Structural Length Guard
   if (lower.length < 5) return false;
 
-  // 3. Sentence Structure Guard
-  // Real topic paths extracted from lists or colons shouldn't read like an unfinished question starting with auxiliary verbs.
+  // 4. Prevent structural fragments that are too short in terms of words
+  const words = lower.split(/\s+/);
+  if (
+    words.length === 1 &&
+    !["programming", "coding", "software", "hardware"].includes(words[0])
+  ) {
+    return false;
+  }
+
+  // 5. Sentence Structure Guard
   if (
     lower.startsWith("why do you") ||
     lower.startsWith("how do you") ||
@@ -115,14 +145,6 @@ export const isValidPrompt = (str: string): boolean => {
   }
 
   return true;
-};
-
-export const cleanMarkdownText = (str: string): string => {
-  return str
-    .replace(/[\*\-_]+/g, "") // Strip markdown bold/italics markers
-    .replace(/^[^a-zA-Z0-9\s]+/, "") // Safely clean non-alphanumeric prefixes WITHOUT over-stripping spaces
-    .replace(/:\s*$/, "") // Strip trailing colons
-    .trim();
 };
 
 export const getModelSuggestedPrompts = (
@@ -147,8 +169,7 @@ export const getModelSuggestedPrompts = (
       let trimmedLine = line.trim();
       if (!trimmedLine) continue;
 
-      // 🛑 NEW/ENHANCED STRATEGY 1: Detect structural splits using either Colons OR Question Marks
-      // This catches "Explore different cuisines? Tell me..." by splitting on the "?"
+      // 1. Detect structural splits using either Colons OR Question Marks
       const delimiter = trimmedLine.includes(":")
         ? ":"
         : trimmedLine.includes("?")
@@ -165,14 +186,13 @@ export const getModelSuggestedPrompts = (
           cleanHeader.length < 60 &&
           isValidPrompt(cleanHeader)
         ) {
-          // Re-attach the question mark cleanly so it presents beautifully as a path choice
           const finalPrompt = cleanHeader.endsWith("?")
             ? cleanHeader
             : `${cleanHeader}?`;
 
           if (!suggestions.includes(finalPrompt)) {
             suggestions.push(finalPrompt);
-            continue; // Successfully extracted, skip fallback strategies for this line
+            continue;
           }
         }
       }
