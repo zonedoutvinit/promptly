@@ -19,18 +19,18 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
   const hasDynamicPrompts = dynamicSuggestedPrompts.length > 0;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 transition-colors duration-200">
       {/* Control Bar Header */}
-      <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+      <div className="flex items-center justify-between border-b border-theme-border pb-2">
         {hasDynamicPrompts ? (
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setActiveTab("dynamic")}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
+              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-all cursor-pointer ${
                 activeTab === "dynamic"
-                  ? "bg-indigo-950 text-indigo-400 border border-indigo-900/40"
-                  : "text-zinc-500 hover:text-zinc-300"
+                  ? "bg-theme-accent/10 text-theme-accent border border-theme-accent/30"
+                  : "text-theme-muted hover:text-theme-text"
               }`}
             >
               Suggested Paths
@@ -38,17 +38,17 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab("generic")}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
+              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-all cursor-pointer ${
                 activeTab === "generic"
-                  ? "bg-zinc-900 text-zinc-300 border border-zinc-800"
-                  : "text-zinc-500 hover:text-zinc-300"
+                  ? "bg-theme-panel text-theme-text border border-theme-border"
+                  : "text-theme-muted hover:text-theme-text"
               }`}
             >
               Structural Paths
             </button>
           </div>
         ) : (
-          <span className="text-xs font-semibold text-zinc-500 px-1 py-1.5">
+          <span className="text-xs font-semibold text-theme-muted px-1 py-1.5">
             🛠️ Structural Prompt Toolkit
           </span>
         )}
@@ -56,7 +56,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="text-zinc-500 hover:text-zinc-300 p-1.5 hover:bg-zinc-900 rounded-md transition flex items-center justify-center"
+          className="text-theme-muted hover:text-theme-text p-1.5 hover:bg-theme-panel rounded-md transition-all flex items-center justify-center cursor-pointer"
           title={isExpanded ? "Collapse panel" : "Expand panel"}
         >
           <svg
@@ -85,7 +85,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
                   key={`dynamic-${i}`}
                   type="button"
                   onClick={() => onSubmit(promptText)}
-                  className="text-xs bg-indigo-950/30 hover:bg-indigo-900/50 text-indigo-300 border border-indigo-900/40 px-3 py-2 rounded-lg transition text-left truncate max-w-xs animate-chipFade"
+                  className="text-xs bg-theme-accent/5 hover:bg-theme-accent/10 text-theme-accent border border-theme-accent/20 px-3 py-2 rounded-lg transition-all text-left truncate max-w-xs animate-chipFade cursor-pointer active:scale-95"
                 >
                   "{promptText}"
                 </button>
@@ -95,7 +95,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
                   key={`generic-${i}`}
                   type="button"
                   onClick={() => onSubmit(opt.prompt)}
-                  className="text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-800 px-3 py-2 rounded-lg transition animate-chipFade"
+                  className="text-xs bg-theme-panel hover:bg-theme-panel/80 text-theme-text/80 hover:text-theme-text border border-theme-border px-3 py-2 rounded-lg transition-all animate-chipFade cursor-pointer active:scale-95"
                 >
                   {opt.label}
                 </button>

@@ -1,7 +1,9 @@
+// src/App.tsx
 import React, { useState, useRef, useEffect } from "react";
 import { useChatStore } from "./store";
 import { getModelSuggestedPrompts } from "./utils/chatHelpers";
 import { Sidebar } from "./components/Sidebar";
+import { Header } from "./components/Header";
 import { ChatWindow } from "./components/ChatWindow";
 import { PromptOptions } from "./components/PromptOptions";
 import { MessageForm } from "./components/MessageForm";
@@ -63,7 +65,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-zinc-950 text-zinc-100 overflow-hidden">
+    <div className="flex h-screen w-screen bg-theme-bg text-theme-text overflow-hidden transition-colors duration-200">
       <Sidebar
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
@@ -75,34 +77,13 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Integrated Header Controls Block */}
-        <header className="flex items-center justify-between border-b border-zinc-900 px-6 py-4 bg-zinc-950/50 backdrop-blur shrink-0">
-          <div className="flex items-center gap-4">
-            {!isSidebarOpen && (
-              <button
-                onClick={() => setIsSidebarOpen(true)}
-                className="text-zinc-400 hover:text-zinc-200 p-1.5 bg-zinc-900 border border-zinc-800 rounded-md transition"
-              >
-                📂
-              </button>
-            )}
-            <span className="text-xl font-bold tracking-tight text-indigo-400">
-              ⚡ Promptly
-            </span>
-          </div>
-
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 outline-none focus:border-indigo-500 transition cursor-pointer font-medium"
-          >
-            {availableModels.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </header>
+        <Header
+          isSidebarOpen={isSidebarOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
+          model={model}
+          availableModels={availableModels}
+          onModelChange={setModel}
+        />
 
         <ChatWindow
           messages={messages}
@@ -111,7 +92,8 @@ export default function App() {
           messagesEndRef={messagesEndRef}
         />
 
-        <footer className="p-6 border-t border-zinc-900 max-w-3xl w-full mx-auto space-y-4 shrink-0">
+        {/* Updated footer borders and structure to blend flawlessly */}
+        <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg">
           {showOptions && (
             <PromptOptions
               activeTab={activeTab}

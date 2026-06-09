@@ -1,1 +1,261 @@
+/* src/index.css */
 @import "tailwindcss";
+
+/* 🗺️ TAILWIND V4 CONFIGURATION MAPPING */
+@theme {
+    --color-theme-bg: var(--color-theme-bg);
+    --color-theme-panel: var(--color-theme-panel);
+    --color-theme-border: var(--color-theme-border);
+    --color-theme-text: var(--color-theme-text);
+    --color-theme-muted: var(--color-theme-muted);
+    --color-theme-accent: var(--color-theme-accent);
+    --color-theme-accent-hover: var(--color-theme-accent-hover);
+}
+
+/* 🎨 THEME ENGINE ROOT PALETTES */
+
+/* ================= 🌑 THE 8 DARK THEMES ================= */
+
+/* Theme 1: Refined Zinc Obsidian */
+:root,
+[data-theme="zinc-dark"] {
+    --color-theme-bg: #09090b;
+    --color-theme-panel: #141417;
+    --color-theme-border: #27272a;
+    --color-theme-text: #f4f4f5;
+    --color-theme-muted: #71717a;
+    --color-theme-accent: #6366f1;
+    --color-theme-accent-hover: #4f46e5;
+    --color-theme-glow: rgba(99, 102, 241, 0.08);
+}
+
+/* Theme 2: Cyberpunk Amber (De-monochromed) */
+[data-theme="cyber-amber"] {
+    --color-theme-bg: #080500;
+    --color-theme-panel: #160f02; /* Distinguishable deep clay hull */
+    --color-theme-border: #332204;
+    --color-theme-text: #e6a100; /* Soft warning text */
+    --color-theme-muted: #805708;
+    --color-theme-accent: #ffb700; /* Hyper-vibrant hot core amber accent */
+    --color-theme-accent-hover: #ff9d00;
+    --color-theme-glow: rgba(255, 183, 0, 0.12);
+}
+
+/* Theme 3: Archive Retro (De-monochromed) */
+[data-theme="archive-retro"] {
+    --color-theme-bg: #030704;
+    --color-theme-panel: #0b140d; /* Distinguishable matrix case */
+    --color-theme-border: #1a301f;
+    --color-theme-text: #2bd115; /* Classic readout text font color */
+    --color-theme-muted: #195210;
+    --color-theme-accent: #5eff40; /* Radioactive high-energy flare indicator */
+    --color-theme-accent-hover: #32d613;
+    --color-theme-glow: rgba(94, 255, 64, 0.15);
+}
+
+/* Theme 4: Slate Cold */
+[data-theme="slate-cold"] {
+    --color-theme-bg: #0b0f19;
+    --color-theme-panel: #171e2e;
+    --color-theme-border: #293548;
+    --color-theme-text: #f1f5f9;
+    --color-theme-muted: #64748b;
+    --color-theme-accent: #0ea5e9;
+    --color-theme-accent-hover: #0284c7;
+    --color-theme-glow: rgba(14, 165, 233, 0.1);
+}
+
+/* Theme 5: Nordic Frost */
+[data-theme="nordic-frost"] {
+    --color-theme-bg: #1e222a;
+    --color-theme-panel: #242933;
+    --color-theme-border: #3b4252;
+    --color-theme-text: #eceff4;
+    --color-theme-muted: #4c566a;
+    --color-theme-accent: #88c0d0;
+    --color-theme-accent-hover: #81a1c1;
+    --color-theme-glow: rgba(136, 192, 208, 0.1);
+}
+
+/* Theme 6: Tokyo Midnight (Neon Noir Computing) */
+[data-theme="tokyo-midnight"] {
+    --color-theme-bg: #0b0813; /* Intense midnight violet canvas */
+    --color-theme-panel: #131020; /* Deep neon-lit deck surface */
+    --color-theme-border: #26203d; /* Soft ultraviolet grid line */
+    --color-theme-text: #f0f0f5; /* Crisp frosted text tracking */
+    --color-theme-muted: #6b6387; /* Moody twilight utility labels */
+    --color-theme-accent: #00f0ff; /* Electric cyan laser beam core */
+    --color-theme-accent-hover: #ff007f; /* Hot magenta secondary reactive target */
+    --color-theme-glow: rgba(0, 240, 255, 0.12);
+}
+
+/* Theme 7: Dracula Eclipse */
+[data-theme="dracula-eclipse"] {
+    --color-theme-bg: #1a1625;
+    --color-theme-panel: #221c30;
+    --color-theme-border: #362b4c;
+    --color-theme-text: #f8f8f2;
+    --color-theme-muted: #6272a4;
+    --color-theme-accent: #bd93f9;
+    --color-theme-accent-hover: #ff79c6;
+    --color-theme-glow: rgba(189, 147, 249, 0.1);
+}
+
+/* Theme 8: Retro Commando */
+[data-theme="retro-commando"] {
+    --color-theme-bg: #1a1b15;
+    --color-theme-panel: #24261e;
+    --color-theme-border: #383b2e;
+    --color-theme-text: #f0ebd8;
+    --color-theme-muted: #6b705c;
+    --color-theme-accent: #a3b18a;
+    --color-theme-accent-hover: #588157;
+    --color-theme-glow: rgba(163, 177, 138, 0.08);
+}
+
+/* ================= ☀️ THE 8 LIGHT THEMES ================= */
+
+/* Theme 9: Paperback Minimal */
+[data-theme="paperback-minimal"] {
+    --color-theme-bg: #fbfaf5;
+    --color-theme-panel: #f3efe3;
+    --color-theme-border: #e3dcaf;
+    --color-theme-text: #2c2a29;
+    --color-theme-muted: #8c857b;
+    --color-theme-accent: #b1563a;
+    --color-theme-accent-hover: #94432c;
+    --color-theme-glow: rgba(177, 86, 58, 0.06);
+}
+
+/* Theme 10: Silicon Alabaster */
+[data-theme="silicon-alabaster"] {
+    --color-theme-bg: #f8fafc;
+    --color-theme-panel: #ffffff;
+    --color-theme-border: #e2e8f0;
+    --color-theme-text: #0f172a;
+    --color-theme-muted: #94a3b8;
+    --color-theme-accent: #4f46e5;
+    --color-theme-accent-hover: #3730a3;
+    --color-theme-glow: rgba(79, 70, 229, 0.05);
+}
+
+/* Theme 11: Nordic Snow */
+[data-theme="nordic-snow"] {
+    --color-theme-bg: #e5e9f0;
+    --color-theme-panel: #eceff4;
+    --color-theme-border: #d8dee9;
+    --color-theme-text: #2e3440;
+    --color-theme-muted: #4c566a;
+    --color-theme-accent: #5e81ac;
+    --color-theme-accent-hover: #4c6e8d;
+    --color-theme-glow: rgba(94, 129, 172, 0.08);
+}
+
+/* Theme 12: Cybermint Light */
+[data-theme="cyber-mint"] {
+    --color-theme-bg: #f0fdf4;
+    --color-theme-panel: #ffffff;
+    --color-theme-border: #bbf7d0;
+    --color-theme-text: #166534;
+    --color-theme-muted: #15803d;
+    --color-theme-accent: #16a34a;
+    --color-theme-accent-hover: #15803d;
+    --color-theme-glow: rgba(22, 163, 74, 0.05);
+}
+
+/* Theme 13: Sakura Blossom (Gentle Pastel Rose) */
+[data-theme="sakura-blossom"] {
+    --color-theme-bg: #fff5f5;
+    --color-theme-panel: #ffe3e3;
+    --color-theme-border: #ffb8b8;
+    --color-theme-text: #c92a2a;
+    --color-theme-muted: #fa5252;
+    --color-theme-accent: #e64980;
+    --color-theme-accent-hover: #d6336c;
+    --color-theme-glow: rgba(230, 73, 128, 0.05);
+}
+
+/* Theme 14: Corporate Teal (Clean Industrial Crisp) */
+[data-theme="corporate-teal"] {
+    --color-theme-bg: #f0f7f7;
+    --color-theme-panel: #ffffff;
+    --color-theme-border: #cce3e3;
+    --color-theme-text: #0f3434;
+    --color-theme-muted: #4d7878;
+    --color-theme-accent: #008080;
+    --color-theme-accent-hover: #006666;
+    --color-theme-glow: rgba(0, 128, 128, 0.04);
+}
+
+/* Theme 15: Vintage Canary (Classic Cream Journalism) */
+[data-theme="vintage-canary"] {
+    --color-theme-bg: #fffbeb;
+    --color-theme-panel: #fef3c7;
+    --color-theme-border: #fde68a;
+    --color-theme-text: #78350f;
+    --color-theme-muted: #b45309;
+    --color-theme-accent: #d97706;
+    --color-theme-accent-hover: #b45309;
+    --color-theme-glow: rgba(217, 119, 6, 0.05);
+}
+
+/* Theme 16: Slate Tech Light (High Contrast Workstation) */
+[data-theme="slate-light"] {
+    --color-theme-bg: #f1f5f9;
+    --color-theme-panel: #e2e8f0;
+    --color-theme-border: #cbd5e1;
+    --color-theme-text: #1e293b;
+    --color-theme-muted: #64748b;
+    --color-theme-accent: #2563eb;
+    --color-theme-accent-hover: #1d4ed8;
+    --color-theme-glow: rgba(37, 99, 235, 0.05);
+}
+
+/* Base application styling rule */
+body {
+    background-color: var(--color-theme-bg);
+    color: var(--color-theme-text);
+    font-family:
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    transition:
+        background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+        border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+        color 0.15s ease;
+}
+/* ================= ⚡ THEMATIC FLUID SCROLLBARS WITH VISUAL PROTECTION ================= */
+
+/* 1. Track Width Geometry (Slightly wider to account for internal padding gutter) */
+::-webkit-scrollbar {
+    width: 10px; /* Expanded width footprint to house the safety gap */
+    height: 10px; /* Parity tracking for horizontal structures */
+}
+
+/* 2. Track Background Anchor */
+::-webkit-scrollbar-track {
+    background: transparent; /* Seamless transparency across structural layers */
+}
+
+/* 3. The Interactive Scrollbar Handle (The Knob) with Gutter Isolation */
+::-webkit-scrollbar-thumb {
+    background-color: var(--color-theme-border);
+    border-radius: 9999px;
+
+    /* 🎨 THE MAGIC TRICK: Thick transparent outer border forces the color inside */
+    border: 3px solid transparent;
+    background-clip: padding-box; /* Crucial: Tells browser not to paint color under the border area */
+}
+
+/* 4. Active Hover Acceleration State */
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-theme-muted);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+}

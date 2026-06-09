@@ -1,3 +1,4 @@
+// src/components/MessageForm.tsx
 import React from "react";
 
 interface MessageFormProps {
@@ -14,7 +15,10 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   onSubmit,
 }) => {
   return (
-    <form onSubmit={onSubmit} className="flex gap-2 pt-1">
+    <form
+      onSubmit={onSubmit}
+      className="flex gap-2 pt-1 transition-colors duration-200"
+    >
       <input
         type="text"
         value={input}
@@ -25,12 +29,12 @@ export const MessageForm: React.FC<MessageFormProps> = ({
             : "Enter structural text instructions..."
         }
         disabled={isLoading}
-        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-indigo-500 transition text-zinc-100 placeholder-zinc-600 disabled:opacity-40"
+        className="flex-1 bg-theme-panel border border-theme-border rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-theme-accent/60 transition text-theme-text placeholder-theme-muted disabled:opacity-40"
       />
       <button
         type="submit"
         disabled={isLoading || !input.trim()}
-        className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-900 disabled:text-zinc-700 font-medium px-5 rounded-xl text-sm transition text-white"
+        className="bg-theme-accent hover:bg-theme-accent-hover disabled:bg-theme-panel disabled:text-theme-muted/50 font-medium px-5 rounded-xl text-sm transition-all text-theme-bg cursor-pointer active:scale-[0.98]"
       >
         Execute
       </button>

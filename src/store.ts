@@ -23,9 +23,11 @@ interface ChatState {
   model: string;
   availableModels: string[];
   settings: EngineSettings;
+  theme: string; // ✨ Added theme state line track
 
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
+  setTheme: (theme: string) => void; // ✨ Added structural theme modification callback
   updateSettings: (
     newSettings: EngineSettings,
     rawKey?: string,
@@ -55,6 +57,14 @@ const getInitialSettings = (): EngineSettings => {
   }
 };
 
+// Safely obtain local storage theme values to avoid initial flash
+const getInitialTheme = (): string => {
+  const savedTheme = localStorage.getItem("promptly-theme") || "zinc-dark";
+  // Set the DOM attribute immediately on startup execution
+  document.documentElement.setAttribute("data-theme", savedTheme);
+  return savedTheme;
+};
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
@@ -63,11 +73,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   model: "",
   availableModels: [],
   settings: getInitialSettings(),
+  theme: getInitialTheme(), // ✨ Hydrate initial theme style parameters
+
+  setTheme: (theme: string) => {
+    localStorage.setItem("promptly-theme", theme);
+    document.documentElement.setAttribute("data-theme", theme);
+    set({ theme });
+  },
 
   updateSettings: async (newSettings: EngineSettings, rawKey?: string) => {
     let encryptedApiKey = newSettings.encryptedApiKey || "";
 
-    // If a new raw string key was updated explicitly inside the UI form, encrypt it
     if (rawKey !== undefined) {
       encryptedApiKey = rawKey ? await encryptKey(rawKey) : "";
     }
@@ -79,7 +95,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
     set({ settings: updatedSettings, availableModels: [], model: "" });
 
-    // Flush and pull fresh engine rosters based on new configurations
     await get().fetchModels();
   },
 
@@ -95,7 +110,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     try {
-      // Ollama Tag Route Engine Check
       if (settings.provider === "ollama") {
         const response = await fetch(`${settings.baseUrl}/api/tags`, {
           headers,
@@ -105,7 +119,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const models = data.models.map((m: any) => m.name);
         set({ availableModels: models });
       } else {
-        // Standard OpenAI compliance endpoints (LM Studio, Local AI, Open-Router)
         const response = await fetch(`${settings.baseUrl}/v1/models`, {
           headers,
         });
@@ -220,23 +233,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ? `${settings.baseUrl}/api/chat`
         : `${settings.baseUrl}/v1/chat/completions`;
 
-      const standardPayload = isOllama
-        ? {
-            model,
-            messages: updatedMessagesWithUser.map(({ role, content }) => ({
-              role,
-              content,
-            })),
-            stream: true,
-          }
-        : {
-            model,
-            messages: updatedMessagesWithUser.map(({ role, content }) => ({
-              role,
-              content,
-            })),
-            stream: true,
-          };
+      const standardPayload = {
+        model,
+        messages: updatedMessagesWithUser.map(({ role, content }) => ({
+          role,
+          content,
+        })),
+        stream: true,
+      };
 
       const response = await fetch(targetUrl, {
         method: "POST",
@@ -269,7 +273,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 assistantTextAccumulator += parsedChunk.message.content;
               }
             } else {
-              // Extract data from classic OpenAI Event Streams ("data: {...}")
               if (trimmedLine.startsWith("data: ")) {
                 const rawJson = trimmedLine.replace(/^data:\s*/, "");
                 if (rawJson === "[DONE]") continue;

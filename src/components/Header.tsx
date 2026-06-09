@@ -1,59 +1,64 @@
+// src/components/Header.tsx
 import React from "react";
+import { Menu, Zap, ChevronDown } from "lucide-react";
 
 interface HeaderProps {
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
   model: string;
+  availableModels: string[];
+  onModelChange: (model: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   isSidebarOpen,
   setIsSidebarOpen,
   model,
+  availableModels,
+  onModelChange,
 }) => {
   return (
-    <header className="flex items-center justify-between border-b border-zinc-900 px-6 py-4 bg-zinc-950/50 backdrop-blur shrink-0">
+    <header className="flex h-15.5 items-center justify-between border-b border-theme-border px-6 py-4 bg-theme-bg/50 backdrop-blur shrink-0 select-none transition-colors duration-200">
+      {/* Left Section: Sidebar Toggle & Branding */}
       <div className="flex items-center gap-4">
-        {/* Sidebar Expand Menu Toggle Button */}
         {!isSidebarOpen && (
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="text-zinc-400 hover:text-zinc-200 p-1.5 bg-zinc-900 border border-zinc-800 rounded-md transition flex items-center justify-center"
+            className="text-theme-text/70 hover:text-theme-text p-1.5 bg-theme-panel border border-theme-border rounded-lg transition-all cursor-pointer flex items-center justify-center active:scale-95 shadow-sm"
             title="Expand History Sidebar"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-              className="w-4 h-4"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5"
-              />
-            </svg>
+            <Menu className="w-4 h-4 stroke-2" />
           </button>
         )}
-
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-bold tracking-tight text-indigo-400">
-            ⚡ Promptly
-          </span>
-          {model && (
-            <span className="rounded-lg bg-indigo-950/40 px-2 py-0.5 text-xs text-indigo-300 border border-indigo-900/30 font-medium">
-              {model}
-            </span>
-          )}
+        <div className="flex items-center gap-1.5 font-bold tracking-tight text-theme-accent">
+          <Zap className="w-4 h-4 fill-theme-accent/10 stroke-[2.5]" />
+          <span className="text-xl">Promptly</span>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="rounded bg-zinc-900 px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider text-zinc-500 border border-zinc-800">
-          Direct Hardware Stream
+      {/* Right Section: Model Selector with Label */}
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-[9px] uppercase font-bold tracking-widest text-theme-muted/70 mr-1">
+          Select Model
         </span>
+        <div className="relative flex items-center">
+          <select
+            value={model}
+            onChange={(e) => onModelChange(e.target.value)}
+            className="appearance-none rounded-xl border border-theme-border bg-theme-panel/60 pl-3 pr-8 py-1 text-xs text-theme-accent outline-none focus:border-theme-accent/40 focus:bg-theme-panel transition-all cursor-pointer font-medium font-mono tracking-tight shadow-xs"
+          >
+            {availableModels.map((m) => (
+              <option
+                key={m}
+                value={m}
+                className="bg-theme-bg text-theme-text font-mono text-xs"
+              >
+                {m}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="w-3 h-3 text-theme-accent/60 pointer-events-none absolute right-2.5 stroke-[2.5]" />
+        </div>
       </div>
     </header>
   );
