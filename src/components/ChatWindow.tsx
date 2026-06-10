@@ -70,9 +70,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   // Click outside listener loop to close the hovering tuning overlay cleanly
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+
+      // Look for data attributes to identify if the user clicked the active cog button itself
+      const clickedToggleButton =
+        target instanceof Element &&
+        target.closest("[data-tuning-toggle='true']");
+
       if (
         popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node)
+        !popoverRef.current.contains(target) &&
+        !clickedToggleButton
       ) {
         setTuningIdx(null);
       }
@@ -152,13 +160,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 ? "w-[85%] ml-auto self-end bg-theme-panel border-theme-border text-theme-text"
                 : "w-fit max-w-[85%] ml-auto self-end bg-theme-panel border-theme-border text-theme-text";
             } else {
-              cardWidthStyles = `w-full max-w-[90%] mr-auto bg-theme-panel/40 border-theme-border/60 text-theme-text text-justify ${msg.isPruned ? "opacity-40" : ""}`;
+              cardWidthStyles = `w-full mr-auto bg-theme-panel/40 border-theme-border/60 text-theme-text text-justify ${msg.isPruned ? "opacity-40" : ""}`;
             }
 
             return (
               <div
                 key={idx}
-                className={`group flex flex-col p-4 rounded-xl border animate-messageSlide transition-all duration-200 relative ${cardWidthStyles}`}
+                className={`group flex flex-col p-3 rounded-xl border animate-messageSlide transition-all duration-200 relative ${cardWidthStyles}`}
               >
                 {/* Upper Meta Info Header Bar */}
                 <div className="flex items-center justify-between border-b border-theme-border/30 pb-1.5 mb-2 select-none">
@@ -179,38 +187,35 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
                   {/* Operational Utility Controls Toolbar */}
                   {!isLoading && !isEditing && (
-                    <div
-                      className={`transition-opacity duration-150 flex items-center gap-1.5 relative ${
-                        isTuning
-                          ? "opacity-100" // Lock visible when configuration menu session is open
-                          : "opacity-0 group-hover:opacity-100" // Regular clean hover style
-                      }`}
-                    >
+                    <div className="flex items-center gap-1.5 relative">
                       {isUser ? (
                         <button
                           type="button"
                           onClick={() => startEditing(idx, msg.content)}
-                          className="p-1 hover:bg-theme-panel rounded text-theme-muted hover:text-theme-text transition cursor-pointer"
+                          className="p-1 hover:bg-theme-panel rounded text-theme-accent transition duration-150 cursor-pointer"
                           title="Edit prompt entry"
                         >
-                          <Pencil className="w-3 h-3" />
+                          {/* Accent-colored, high-weight custom icon footprint */}
+                          <Pencil className="w-3 h-3 stroke-[2.5]" />
                         </button>
                       ) : (
                         <>
                           <button
                             type="button"
+                            data-tuning-toggle="true"
                             onClick={(e) => startTuning(e, idx, msg)}
-                            className={`p-1 hover:bg-theme-panel rounded transition cursor-pointer relative z-20 ${
+                            className={`p-1 hover:bg-theme-panel rounded transition duration-150 cursor-pointer relative z-20 ${
                               isTuning
                                 ? "text-theme-accent bg-theme-panel"
-                                : "text-theme-muted hover:text-theme-text"
+                                : "text-theme-accent"
                             }`}
                             title="Tune checkpoint parameters"
                           >
-                            <Settings className="w-3 h-3" />
+                            {/* Accent-colored, high-weight custom icon footprint */}
+                            <Settings className="w-3 h-3 stroke-[2.5]" />
                           </button>
 
-                          {/* 🛸 FLOATING HOVERING WINDOW (OVERLAY POPUP) */}
+                          {/* FLOATING HOVERING WINDOW (OVERLAY POPUP) */}
                           {isTuning && (
                             <div
                               ref={popoverRef}
@@ -320,7 +325,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                                 </div>
                               </div>
 
-                              {/* Compilation Launcher Action Trigger */}
+                              {/* Action Trigger */}
                               <div className="flex justify-end pt-1 border-t border-theme-border/40">
                                 <button
                                   type="button"
@@ -338,7 +343,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   )}
                 </div>
 
-                {/* 📝 CORE CONTENT WORKSPACE INNER ROUTER */}
+                {/* CORE CONTENT WORKSPACE */}
                 {isUser ? (
                   isEditing ? (
                     <div className="space-y-2 mt-1">

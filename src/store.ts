@@ -33,6 +33,7 @@ interface ChatState {
   settings: EngineSettings;
   theme: string;
   customPersonas: SystemProfile[];
+  abortController: AbortController | null;
 
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
@@ -51,6 +52,7 @@ interface ChatState {
   selectSession: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
+  stopGeneration: () => void;
   loadSessionsFromStorage: () => Promise<void>;
   toggleMessagePin: (index: number) => Promise<void>;
   toggleMessagePrune: (index: number) => Promise<void>;
@@ -64,7 +66,7 @@ interface ChatState {
       frequencyPenalty: number;
       presencePenalty: number;
     },
-  ) => void;
+  ) => Promise<void>;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -145,6 +147,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
   settings: getInitialSettings(),
   theme: getInitialTheme(),
   customPersonas: getInitialPersonas(),
+  abortController: null,
+
+  stopGeneration: () => {
+    const {
+      abortController,
+      currentSessionId,
+      model,
+      messages,
+      sessions,
+      loadSessionsFromStorage,
+    } = get();
+    if (abortController) {
+      abortController.abort();
+
+      // Save what we have accumulated up to this point inside IndexedDB
+      if (currentSessionId) {
+        const match = sessions.find((s) => s.id === currentSessionId);
+        const activeTitle = match?.title || "Active Discussion";
+        const finalSessionRecord: ChatSession = {
+          id: currentSessionId,
+          title: activeTitle,
+          model,
+          messages: messages,
+          updatedAt: Date.now(),
+        };
+        saveSession(finalSessionRecord).then(() => loadSessionsFromStorage());
+      }
+
+      set({ abortController: null, isLoading: false });
+    }
+  },
 
   setTheme: (theme: string) => {
     localStorage.setItem("promptly-theme", theme);
@@ -255,7 +288,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   createNewSession: () => {
-    set({ currentSessionId: null, messages: [], isLoading: false });
+    set({
+      currentSessionId: null,
+      messages: [],
+      isLoading: false,
+      abortController: null,
+    });
   },
 
   selectSession: (id: string) => {
@@ -367,6 +405,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     let sessionId = currentSessionId || crypto.randomUUID();
     const isBrandNewSession = !currentSessionId;
+    const controller = new AbortController();
 
     const newUserMessage: ChatMessage = {
       role: "user",
@@ -401,10 +440,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       updatedAt: Date.now(),
     };
 
+    // STABILITY ENHANCEMENT: Commit session shell atomic write before execution pipeline starts
+    await saveSession(transientSessionRecord);
+    await get().loadSessionsFromStorage();
+
     set({
       currentSessionId: sessionId,
       messages: transientSessionRecord.messages,
       isLoading: true,
+      abortController: controller,
     });
 
     try {
@@ -435,6 +479,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         method: "POST",
         headers,
         body: JSON.stringify(standardPayload),
+        signal: controller.signal, // Link transactional hardware runtime interrupt
       });
 
       if (!response.ok || !response.body)
@@ -489,7 +534,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
-      set({ isLoading: false });
+      set({ isLoading: false, abortController: null });
+
       const finalSessionRecord: ChatSession = {
         id: sessionId,
         title: initialTitle,
@@ -500,9 +546,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       await saveSession(finalSessionRecord);
       await get().loadSessionsFromStorage();
-    } catch (error) {
-      console.error("Local inference execution failed:", error);
-      set({ isLoading: false });
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        console.log(
+          "Local streaming request gracefully severed by the client device.",
+        );
+      } else {
+        console.error("Local inference execution failed:", error);
+        set({ isLoading: false, abortController: null });
+      }
     }
   },
 
@@ -536,6 +588,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (targetUserIdx < 0 || messages[targetUserIdx].role !== "user") return;
 
     // Truncate the thread history right after the user's setup prompt
+    const controller = new AbortController();
     const cleanHistory = messages.slice(0, targetUserIdx + 1);
     const compiledActiveContext = cleanHistory
       .filter((msg) => !msg.isPruned)
@@ -545,7 +598,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const streamingHistory: ChatMessage[] = [
       ...cleanHistory,
       {
-        role: "assistant" as const, // 🔥 Force literal type tracking instead of basic string
+        role: "assistant" as const,
         content: "",
         timestamp: Date.now(),
         isPinned: false,
@@ -554,7 +607,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     ];
 
-    set({ messages: streamingHistory, isLoading: true });
+    set({
+      messages: streamingHistory,
+      isLoading: true,
+      abortController: controller,
+    });
 
     try {
       const headers: Record<string, string> = {
@@ -595,6 +652,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         method: "POST",
         headers,
         body: JSON.stringify(standardPayload),
+        signal: controller.signal,
       });
 
       if (!response.ok || !response.body)
@@ -649,7 +707,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
-      set({ isLoading: false });
+      set({ isLoading: false, abortController: null });
 
       const sessionMatch = get().sessions.find(
         (s) => s.id === currentSessionId,
@@ -663,9 +721,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         await saveSession(finalSessionRecord);
         await get().loadSessionsFromStorage();
       }
-    } catch (error) {
-      console.error("Local context regeneration execution failed:", error);
-      set({ isLoading: false });
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        console.log(
+          "Checkpoint regeneration loop gracefully halted by the system engine.",
+        );
+      } else {
+        console.error("Local context regeneration execution failed:", error);
+        set({ isLoading: false, abortController: null });
+      }
     }
   },
 }));

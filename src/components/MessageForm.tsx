@@ -10,6 +10,7 @@ import {
   Code,
   BrainCircuit,
   Terminal as DefaultIcon,
+  Square, // Added for Stop icon
 } from "lucide-react";
 
 interface MessageFormProps {
@@ -34,16 +35,16 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   isLoading,
   onSubmit,
 }) => {
-  const { messages, customPersonas } = useChatStore();
+  const { messages, customPersonas, stopGeneration } = useChatStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // 🚀 Custom Frame-by-Frame Smooth Scroll Engine Loop
+  // Custom Frame-by-Frame Smooth Scroll Engine Loop
   const scrollCarousel = (direction: "left" | "right") => {
     if (!scrollContainerRef.current) return;
 
     const container = scrollContainerRef.current;
-    const scrollAmount = 220; // Structural step sizing matching button bounds
+    const scrollAmount = 220;
     const startPosition = container.scrollLeft;
     const targetPosition =
       direction === "left"
@@ -178,12 +179,25 @@ export const MessageForm: React.FC<MessageFormProps> = ({
           />
         </div>
 
+        {/* Dynamic Execute/Stop Button */}
         <button
-          type="submit"
-          disabled={isLoading || !input.trim()}
-          className="bg-theme-accent hover:bg-theme-accent-hover disabled:bg-theme-panel disabled:text-theme-muted/50 font-semibold px-5 h-11.5 rounded-xl text-sm transition-all text-theme-bg cursor-pointer active:scale-[0.98] shrink-0"
+          type={isLoading ? "button" : "submit"}
+          onClick={isLoading ? stopGeneration : undefined}
+          disabled={!isLoading && input.trim().length === 0}
+          className={`${
+            isLoading
+              ? "bg-theme-muted hover:bg-red-500 text-white"
+              : "bg-theme-accent hover:bg-theme-accent-hover text-theme-bg"
+          } font-semibold px-5 h-11.5 rounded-xl text-sm transition-all cursor-pointer active:scale-[0.98] shrink-0 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed`}
         >
-          Execute
+          {isLoading ? (
+            <>
+              <Square className="w-3 h-3 fill-current" />
+              Stop
+            </>
+          ) : (
+            "Execute"
+          )}
         </button>
       </form>
     </div>

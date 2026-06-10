@@ -52,6 +52,11 @@ export const getAllSessions = async (): Promise<ChatSession[]> => {
     const store = transaction.objectStore(STORE_NAME);
     const request = store.getAll();
 
+    // Guard transactional lifecycle completely
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(new Error("Transaction aborted by database system engine."));
+
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       // Sort sessions so the most recently updated thread sits at the top
@@ -72,16 +77,24 @@ export const getAllSessions = async (): Promise<ChatSession[]> => {
   });
 };
 
-// Persist or overwrite an active conversation session thread
+// Persist or overwrite an active conversation session thread atomically
 export const saveSession = async (session: ChatSession): Promise<void> => {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, "readwrite");
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(session);
 
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
+    // Put mutation payload into operational stream pipeline
+    store.put(session);
+
+    // ATOMIC GUARANTEE: Resolve ONLY when data is successfully flushed to disk storage container
+    transaction.oncomplete = () => resolve();
+
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(
+        new Error("Write transaction aborted before commit phase finalized."),
+      );
   });
 };
 
@@ -91,9 +104,14 @@ export const deleteSessionFromDB = async (id: string): Promise<void> => {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, "readwrite");
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.delete(id);
 
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
+    store.delete(id);
+
+    // ATOMIC GUARANTEE: Confirm structural removal integrity safely across layers
+    transaction.oncomplete = () => resolve();
+
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(new Error("Delete transaction aborted before cleanup executed."));
   });
 };
