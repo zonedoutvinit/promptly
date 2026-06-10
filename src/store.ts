@@ -54,6 +54,17 @@ interface ChatState {
   loadSessionsFromStorage: () => Promise<void>;
   toggleMessagePin: (index: number) => Promise<void>;
   toggleMessagePrune: (index: number) => Promise<void>;
+
+  onUpdateUserMessage: (index: number, newContent: string) => Promise<void>;
+  onRegenerateFromCheckpoint: (
+    index: number,
+    overrides: {
+      temperature: number;
+      topP: number;
+      frequencyPenalty: number;
+      presencePenalty: number;
+    },
+  ) => void;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -491,6 +502,169 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await get().loadSessionsFromStorage();
     } catch (error) {
       console.error("Local inference execution failed:", error);
+      set({ isLoading: false });
+    }
+  },
+
+  onUpdateUserMessage: async (index: number, newContent: string) => {
+    const { messages, isLoading } = get();
+    if (isLoading || !newContent.trim()) return;
+
+    // Truncate the history right up to the user message being edited
+    const cleanHistory = messages.slice(0, index);
+
+    // Execute using the existing message pipeline
+    set({ messages: cleanHistory });
+    await get().sendMessage(newContent);
+  },
+
+  onRegenerateFromCheckpoint: async (
+    index: number,
+    overrides: {
+      temperature: number;
+      topP: number;
+      frequencyPenalty: number;
+      presencePenalty: number;
+    },
+  ) => {
+    const { model, messages, isLoading, currentSessionId, settings } = get();
+    if (!model || isLoading || !currentSessionId) return;
+
+    // Locate the matching User Prompt that generated this assistant response checkpoint
+    // If regenerating an assistant index directly, target the prompt right before it (index - 1)
+    const targetUserIdx = messages[index].role === "user" ? index : index - 1;
+    if (targetUserIdx < 0 || messages[targetUserIdx].role !== "user") return;
+
+    // Truncate the thread history right after the user's setup prompt
+    const cleanHistory = messages.slice(0, targetUserIdx + 1);
+    const compiledActiveContext = cleanHistory
+      .filter((msg) => !msg.isPruned)
+      .map(({ role, content }) => ({ role, content }));
+
+    // Append an empty placeholder assistant message frame for streaming
+    const streamingHistory: ChatMessage[] = [
+      ...cleanHistory,
+      {
+        role: "assistant" as const, // 🔥 Force literal type tracking instead of basic string
+        content: "",
+        timestamp: Date.now(),
+        isPinned: false,
+        isPruned: false,
+        ...overrides,
+      },
+    ];
+
+    set({ messages: streamingHistory, isLoading: true });
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (settings.encryptedApiKey) {
+        const activeKey = await decryptKey(settings.encryptedApiKey);
+        if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
+      }
+
+      const isOllama = settings.provider === "ollama";
+      const targetUrl = isOllama
+        ? `${settings.baseUrl}/api/chat`
+        : `${settings.baseUrl}/v1/chat/completions`;
+
+      // Build payload options, passing parameter overrides securely to matching inference engines
+      const standardPayload: Record<string, any> = {
+        model,
+        messages: compiledActiveContext,
+        stream: true,
+      };
+
+      if (isOllama) {
+        standardPayload.options = {
+          temperature: overrides.temperature,
+          top_p: overrides.topP,
+          frequency_penalty: overrides.frequencyPenalty,
+          presence_penalty: overrides.presencePenalty,
+        };
+      } else {
+        standardPayload.temperature = overrides.temperature;
+        standardPayload.top_p = overrides.topP;
+        standardPayload.frequency_penalty = overrides.frequencyPenalty;
+        standardPayload.presence_penalty = overrides.presencePenalty;
+      }
+
+      const response = await fetch(targetUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(standardPayload),
+      });
+
+      if (!response.ok || !response.body)
+        throw new Error("Checkpoint regeneration generation error");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantTextAccumulator = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunkText = decoder.decode(value, { stream: true });
+        const lines = chunkText.split("\n");
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+
+          try {
+            if (isOllama) {
+              const parsedChunk = JSON.parse(trimmedLine);
+              if (parsedChunk.message?.content) {
+                assistantTextAccumulator += parsedChunk.message.content;
+              }
+            } else {
+              if (trimmedLine.startsWith("data: ")) {
+                const rawJson = trimmedLine.replace(/^data:\s*/, "");
+                if (rawJson === "[DONE]") continue;
+
+                const parsedChunk = JSON.parse(rawJson);
+                const contentChunk = parsedChunk.choices?.[0]?.delta?.content;
+                if (contentChunk) {
+                  assistantTextAccumulator += contentChunk;
+                }
+              }
+            }
+
+            set((state) => {
+              const currentHistory = [...state.messages];
+              if (currentHistory.length > 0) {
+                currentHistory[currentHistory.length - 1] = {
+                  ...currentHistory[currentHistory.length - 1],
+                  content: assistantTextAccumulator,
+                  timestamp: Date.now(),
+                };
+              }
+              return { messages: currentHistory };
+            });
+          } catch (e) {}
+        }
+      }
+
+      set({ isLoading: false });
+
+      const sessionMatch = get().sessions.find(
+        (s) => s.id === currentSessionId,
+      );
+      if (sessionMatch) {
+        const finalSessionRecord = {
+          ...sessionMatch,
+          messages: get().messages,
+          updatedAt: Date.now(),
+        };
+        await saveSession(finalSessionRecord);
+        await get().loadSessionsFromStorage();
+      }
+    } catch (error) {
+      console.error("Local context regeneration execution failed:", error);
       set({ isLoading: false });
     }
   },

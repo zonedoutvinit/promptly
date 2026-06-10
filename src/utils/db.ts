@@ -9,6 +9,10 @@ export interface ChatMessage {
   timestamp: number;
   isPinned?: boolean;
   isPruned?: boolean;
+  temperature?: number;
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
 }
 
 export interface ChatSession {

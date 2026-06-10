@@ -7,9 +7,10 @@ import { Header } from "./components/Header";
 import { ChatWindow } from "./components/ChatWindow";
 import { PromptOptions } from "./components/PromptOptions";
 import { MessageForm } from "./components/MessageForm";
-import { ContextSidebar } from "./components/ContextSidebar"; // 📌 Hooking up our new Telemetry Engine
+import { ContextSidebar } from "./components/ContextSidebar";
 
 export default function App() {
+  // Extract functions from state hooks layout container
   const {
     messages,
     isLoading,
@@ -24,6 +25,8 @@ export default function App() {
     selectSession,
     deleteSession,
     loadSessionsFromStorage,
+    onUpdateUserMessage, // ✨ Hook up edit
+    onRegenerateFromCheckpoint, // ✨ Hook up tuning
   } = useChatStore();
 
   const [input, setInput] = useState("");
@@ -98,6 +101,8 @@ export default function App() {
               isLoading={isLoading}
               hasMessages={hasMessages}
               messagesEndRef={messagesEndRef}
+              onUpdateUserMessage={onUpdateUserMessage} // ✨ Connected
+              onRegenerateFromCheckpoint={onRegenerateFromCheckpoint} // ✨ Connected
             />
 
             <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg">
