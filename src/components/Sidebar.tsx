@@ -1,8 +1,17 @@
 // src/components/Sidebar.tsx
-import React, { useState } from "react";
-import { Plus, X, Trash2, Settings } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Plus,
+  X,
+  Trash2,
+  Settings,
+  FileText,
+  Braces,
+  MoreVertical,
+} from "lucide-react";
 import { ChatSession } from "../utils/db";
 import { SettingsModal } from "./SettingsModal";
+import { exportToMarkdown, exportToJSON } from "../utils/exporter";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -24,6 +33,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
 }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(
+    null,
+  );
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 🖱️ Event trigger to clear the menu if a user clicks anywhere outside its bounding box
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenuSessionId(null);
+      }
+    };
+
+    if (activeMenuSessionId !== null) {
+      document.addEventListener("mousedown", handleOutsideClick);
+    }
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [activeMenuSessionId]);
+
+  const toggleMenu = (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation(); // Block selection triggers on row click
+    setActiveMenuSessionId(
+      activeMenuSessionId === sessionId ? null : sessionId,
+    );
+  };
 
   return (
     <>
@@ -37,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Enforced layout wrapper to prevent text distortion during sidebar scaling */}
         <div className="flex flex-col h-full w-64 overflow-hidden">
           {/* Header Controls */}
-          <div className="p-4 border-b border-theme-border flex items-center justify-between h-15.5">
+          <div className="p-4 border-b border-theme-border flex items-center justify-between h-15.5 shrink-0">
             <span className="text-xs font-bold tracking-wider uppercase text-theme-muted">
               Recent Chats
             </span>
@@ -51,7 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Action Button */}
-          <div className="p-3">
+          <div className="p-3 shrink-0">
             <button
               onClick={onNewChat}
               className="w-full bg-theme-panel hover:bg-theme-panel/80 text-theme-text border border-theme-border px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer group active:scale-[0.98] shadow-xs"
@@ -62,46 +96,107 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Sessions List Layer */}
-          <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
+          <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1 scrollbar-none">
             {sessions.map((session) => {
               const isActive = currentSessionId === session.id;
+              const isMenuOpen = activeMenuSessionId === session.id;
+              const hasMessages =
+                session.messages && session.messages.length > 0;
+
               return (
                 <div
                   key={session.id}
                   onClick={() => onSelectSession(session.id)}
-                  className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition text-xs font-medium border ${
+                  className={`group relative flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition text-xs font-medium border ${
                     isActive
                       ? "bg-theme-panel text-theme-accent border-theme-border/80 shadow-xs"
                       : "bg-transparent text-theme-muted border-transparent hover:bg-theme-panel/40 hover:text-theme-text"
                   }`}
                 >
-                  <div className="flex flex-col truncate pr-2 gap-0.5">
+                  {/* Left Side: Session Details */}
+                  <div className="flex flex-col truncate pr-2 gap-0.5 max-w-[85%]">
                     <span
-                      className={`truncate font-normal transition-colors ${isActive ? "text-theme-accent font-semibold" : "text-theme-text group-hover:text-theme-text"}`}
+                      className={`truncate font-normal transition-colors ${
+                        isActive
+                          ? "text-theme-accent font-semibold"
+                          : "text-theme-text"
+                      }`}
                     >
                       {session.title}
                     </span>
-                    <span className="text-[10px] text-theme-muted/70 font-mono tracking-tight group-hover:text-theme-muted transition-colors">
+                    <span className="text-[10px] text-theme-muted/70 font-mono tracking-tight transition-colors">
                       {session.model}
                     </span>
                   </div>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (
-                        confirm(
-                          "Delete this conversation thread from local memory storage?",
-                        )
-                      ) {
-                        onDeleteSession(session.id);
-                      }
-                    }}
-                    className="p-1.5 hover:bg-theme-panel border border-transparent hover:border-theme-border/40 text-theme-muted/50 hover:text-rose-400 rounded-lg transition-all cursor-pointer flex items-center justify-center shrink-0"
-                    title="Delete Thread"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 stroke-[1.8]" />
-                  </button>
+                  {/* Right Side: Persistent Action Anchor Menu Key */}
+                  <div className="relative shrink-0 flex items-center">
+                    <button
+                      type="button"
+                      onClick={(e) => toggleMenu(e, session.id)}
+                      className="p-1 text-theme-text hover:bg-theme-panel/80 border border-transparent hover:border-theme-border/40 rounded-md transition-all cursor-pointer flex items-center justify-center"
+                      title="Thread Utilities Menu"
+                    >
+                      <MoreVertical className="w-3.5 h-3.5 stroke-2" />
+                    </button>
+
+                    {/* ⚙️ Absolute Context Dropdown Overlay Panel */}
+                    {isMenuOpen && (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-7 z-50 w-44 bg-theme-panel border border-theme-border rounded-xl shadow-lg p-1 animate-fadeIn font-normal text-theme-text text-xs space-y-0.5"
+                        onClick={(e) => e.stopPropagation()} // Keep actions from selecting row underneath
+                      >
+                        {hasMessages && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                exportToMarkdown(session);
+                                setActiveMenuSessionId(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-theme-muted hover:text-theme-text hover:bg-theme-bg/60 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-theme-accent/80" />
+                              <span>Export Markdown</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                exportToJSON(session);
+                                setActiveMenuSessionId(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-theme-muted hover:text-theme-text hover:bg-theme-bg/60 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Braces className="w-3.5 h-3.5 text-theme-accent/80" />
+                              <span>Export JSON Context</span>
+                            </button>
+
+                            <div className="h-px bg-theme-border/60 my-1 mx-1" />
+                          </>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMenuSessionId(null);
+                            if (
+                              confirm(
+                                "Delete this conversation thread from local memory storage?",
+                              )
+                            ) {
+                              onDeleteSession(session.id);
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-rose-400/90 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 stroke-[1.8]" />
+                          <span>Delete Thread</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -115,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom Status Dock */}
-        <div className="p-4 border-t border-theme-border text-[10px] text-theme-muted font-mono w-64 flex items-center justify-between bg-theme-bg/80 backdrop-blur-xs">
+        <div className="p-4 border-t border-theme-border text-[10px] text-theme-muted font-mono w-64 flex items-center justify-between bg-theme-bg/80 backdrop-blur-xs shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>

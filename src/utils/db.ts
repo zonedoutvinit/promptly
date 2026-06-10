@@ -1,16 +1,19 @@
+// src/utils/db.ts
 const DB_NAME = "PromptlyLocalDB";
 const DB_VERSION = 2;
 const STORE_NAME = "chat_sessions";
 
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
+  isPinned?: boolean;
+  isPruned?: boolean;
 }
 
 export interface ChatSession {
   id: string; // Unique session UUID or timestamp string
-  title: string; // Dynamic conversational title (e.g., "Food history discussion")
+  title: string; // Dynamic conversational title
   model: string; // The last model used inside this thread
   messages: ChatMessage[];
   updatedAt: number;
@@ -37,7 +40,7 @@ export const initDB = (): Promise<IDBDatabase> => {
   });
 };
 
-// Fetch all available chat sessions to display in the Sidebar list
+// Fetch all sessions and sanitize flags for existing items to handle upgrades gracefully
 export const getAllSessions = async (): Promise<ChatSession[]> => {
   const db = await initDB();
   return new Promise((resolve, reject) => {
@@ -49,7 +52,18 @@ export const getAllSessions = async (): Promise<ChatSession[]> => {
     request.onsuccess = () => {
       // Sort sessions so the most recently updated thread sits at the top
       const sessions = request.result as ChatSession[];
-      resolve(sessions.sort((a, b) => b.updatedAt - a.updatedAt));
+
+      // Ensure missing metadata fields default cleanly to false for historical records
+      const sanitizedSessions = sessions.map((session) => ({
+        ...session,
+        messages: (session.messages || []).map((msg) => ({
+          ...msg,
+          isPinned: msg.isPinned ?? false,
+          isPruned: msg.isPruned ?? false,
+        })),
+      }));
+
+      resolve(sanitizedSessions.sort((a, b) => b.updatedAt - a.updatedAt));
     };
   });
 };

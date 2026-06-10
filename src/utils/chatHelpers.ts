@@ -163,7 +163,8 @@ export const getModelSuggestedPrompts = (
     text.toLowerCase().includes("here are");
 
   if (isInvitation) {
-    const lines = text.split("\n");
+    // CRITICAL FLIP: Split and reverse to prioritize closing remarks and questions
+    const lines = text.split("\n").reverse();
 
     for (const line of lines) {
       let trimmedLine = line.trim();
@@ -192,6 +193,7 @@ export const getModelSuggestedPrompts = (
 
           if (!suggestions.includes(finalPrompt)) {
             suggestions.push(finalPrompt);
+            if (suggestions.length >= 5) break; // Early exit cap
             continue;
           }
         }
@@ -211,18 +213,26 @@ export const getModelSuggestedPrompts = (
 
           if (!suggestions.includes(formattedPrompt)) {
             suggestions.push(formattedPrompt);
+            if (suggestions.length >= 5) break; // Early exit cap
           }
         }
       }
     }
   }
 
-  // 3. Quote Fallback Pass
+  // 3. Quote Fallback Pass (Runs only if bottom-up structural lines found nothing)
   if (suggestions.length === 0) {
     const quoteRegex = /"([^"\n]{6,65})"/g;
     let quoteMatch;
+    const foundQuotes: string[] = [];
+
     while ((quoteMatch = quoteRegex.exec(text)) !== null) {
-      const cleanQuote = cleanMarkdownText(quoteMatch[1]);
+      foundQuotes.push(quoteMatch[1]);
+    }
+
+    // Reverse quotes to read from bottom up
+    for (const rawQuote of foundQuotes.reverse()) {
+      const cleanQuote = cleanMarkdownText(rawQuote);
       if (isValidPrompt(cleanQuote)) {
         const formattedQuote = cleanQuote.endsWith("?")
           ? cleanQuote
@@ -230,10 +240,12 @@ export const getModelSuggestedPrompts = (
 
         if (!suggestions.includes(formattedQuote)) {
           suggestions.push(formattedQuote);
+          if (suggestions.length >= 5) break;
         }
       }
     }
   }
 
-  return suggestions.slice(0, 5);
+  // No need to slice at the end since we cap it actively during insertion
+  return suggestions;
 };

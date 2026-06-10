@@ -15,6 +15,14 @@ export interface EngineSettings {
   encryptedApiKey?: string;
 }
 
+export interface SystemProfile {
+  id: string;
+  label: string;
+  icon: string; // Stored as a generic literal matching key mapping dictionaries
+  prompt: string;
+  isSystemDefault?: boolean;
+}
+
 interface ChatState {
   sessions: ChatSession[];
   currentSessionId: string | null;
@@ -23,21 +31,29 @@ interface ChatState {
   model: string;
   availableModels: string[];
   settings: EngineSettings;
-  theme: string; // ✨ Added theme state line track
+  theme: string;
+  customPersonas: SystemProfile[];
 
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
-  setTheme: (theme: string) => void; // ✨ Added structural theme modification callback
+  setTheme: (theme: string) => void;
   updateSettings: (
     newSettings: EngineSettings,
     rawKey?: string,
   ) => Promise<void>;
+
+  // 🎭 Persona Management Operations
+  addPersona: (persona: Omit<SystemProfile, "id">) => void;
+  updatePersona: (id: string, updated: Partial<SystemProfile>) => void;
+  deletePersona: (id: string) => void;
 
   createNewSession: () => void;
   selectSession: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   loadSessionsFromStorage: () => Promise<void>;
+  toggleMessagePin: (index: number) => Promise<void>;
+  toggleMessagePrune: (index: number) => Promise<void>;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -46,7 +62,41 @@ const DEFAULT_SETTINGS: EngineSettings = {
   encryptedApiKey: "",
 };
 
-// Retrieve bootstrap settings from LocalStorage safely
+const DEFAULT_PERSONAS: SystemProfile[] = [
+  {
+    id: "default-assistant",
+    label: "General Assistant",
+    icon: "Sparkles",
+    prompt:
+      "You are a helpful, precise AI assistant. Provide direct, optimal answers with clear structural markdown hierarchy.",
+    isSystemDefault: true,
+  },
+  {
+    id: "default-writer",
+    label: "Creative Writer",
+    icon: "PenTool",
+    prompt:
+      "You are an expert editor and creative writer. Focus on comprehensive prose generation, fluid articulation, and synthesis, adjusting tone dynamically based on context.",
+    isSystemDefault: true,
+  },
+  {
+    id: "default-developer",
+    label: "Software Engineer",
+    icon: "Code",
+    prompt:
+      "You are an expert software engineer. Provide optimal, clean code implementations matching industrial best practices. Prioritize execution speed, memory safety, and include minimal explanation prose.",
+    isSystemDefault: true,
+  },
+  {
+    id: "default-thinker",
+    label: "Analytical Reasoning",
+    icon: "BrainCircuit",
+    prompt:
+      "You are a rigorous analytical thinker. Break down problems step-by-step, cross-examining edge cases and logical deductions thoroughly before arriving at conclusions.",
+    isSystemDefault: true,
+  },
+];
+
 const getInitialSettings = (): EngineSettings => {
   const local = localStorage.getItem("promptly_engine_settings");
   if (!local) return DEFAULT_SETTINGS;
@@ -57,12 +107,21 @@ const getInitialSettings = (): EngineSettings => {
   }
 };
 
-// Safely obtain local storage theme values to avoid initial flash
 const getInitialTheme = (): string => {
   const savedTheme = localStorage.getItem("promptly-theme") || "zinc-dark";
-  // Set the DOM attribute immediately on startup execution
   document.documentElement.setAttribute("data-theme", savedTheme);
   return savedTheme;
+};
+
+const getInitialPersonas = (): SystemProfile[] => {
+  const local = localStorage.getItem("promptly_custom_personas");
+  if (!local) return DEFAULT_PERSONAS;
+  try {
+    const parsed = JSON.parse(local);
+    return parsed.length > 0 ? parsed : DEFAULT_PERSONAS;
+  } catch {
+    return DEFAULT_PERSONAS;
+  }
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -73,7 +132,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   model: "",
   availableModels: [],
   settings: getInitialSettings(),
-  theme: getInitialTheme(), // ✨ Hydrate initial theme style parameters
+  theme: getInitialTheme(),
+  customPersonas: getInitialPersonas(),
 
   setTheme: (theme: string) => {
     localStorage.setItem("promptly-theme", theme);
@@ -96,6 +156,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ settings: updatedSettings, availableModels: [], model: "" });
 
     await get().fetchModels();
+  },
+
+  // Persona Store Engine Logic Reductions
+  addPersona: (persona) => {
+    const newPersona: SystemProfile = {
+      ...persona,
+      id: `custom-${crypto.randomUUID()}`,
+    };
+    const updated = [...get().customPersonas, newPersona];
+    localStorage.setItem("promptly_custom_personas", JSON.stringify(updated));
+    set({ customPersonas: updated });
+  },
+
+  updatePersona: (id, updatedFields) => {
+    const updated = get().customPersonas.map((p) =>
+      p.id === id ? { ...p, ...updatedFields } : p,
+    );
+    localStorage.setItem("promptly_custom_personas", JSON.stringify(updated));
+    set({ customPersonas: updated });
+  },
+
+  deletePersona: (id) => {
+    const updated = get().customPersonas.filter((p) => p.id !== id);
+    localStorage.setItem("promptly_custom_personas", JSON.stringify(updated));
+    set({ customPersonas: updated });
   },
 
   fetchModels: async () => {
@@ -134,7 +219,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     } catch (err) {
       console.error(
-        "Could not fetch models for current provider settings configuration.",
+        "Could not fetch models for current provider settings.",
         err,
       );
       set({ availableModels: [] });
@@ -181,6 +266,90 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  toggleMessagePin: async (index: number) => {
+    const { messages, currentSessionId, sessions } = get();
+    if (!currentSessionId) return;
+
+    const targetHistory = [...messages];
+    const targetMessage = targetHistory[index];
+    if (!targetMessage) return;
+
+    const newPinState = !targetMessage.isPinned;
+    const updateIndices: number[] = [index];
+
+    if (
+      targetMessage.role === "user" &&
+      targetHistory[index + 1]?.role === "assistant"
+    ) {
+      updateIndices.push(index + 1);
+    } else if (
+      targetMessage.role === "assistant" &&
+      targetHistory[index - 1]?.role === "user"
+    ) {
+      updateIndices.push(index - 1);
+    }
+
+    updateIndices.forEach((i) => {
+      if (targetHistory[i]) {
+        targetHistory[i] = { ...targetHistory[i], isPinned: newPinState };
+      }
+    });
+
+    set({ messages: targetHistory });
+    const match = sessions.find((s) => s.id === currentSessionId);
+    if (match) {
+      const updatedSession = {
+        ...match,
+        messages: targetHistory,
+        updatedAt: Date.now(),
+      };
+      await saveSession(updatedSession);
+      await get().loadSessionsFromStorage();
+    }
+  },
+
+  toggleMessagePrune: async (index: number) => {
+    const { messages, currentSessionId, sessions } = get();
+    if (!currentSessionId) return;
+
+    const targetHistory = [...messages];
+    const targetMessage = targetHistory[index];
+    if (!targetMessage) return;
+
+    const newPruneState = !targetMessage.isPruned;
+    const updateIndices: number[] = [index];
+
+    if (
+      targetMessage.role === "user" &&
+      targetHistory[index + 1]?.role === "assistant"
+    ) {
+      updateIndices.push(index + 1);
+    } else if (
+      targetMessage.role === "assistant" &&
+      targetHistory[index - 1]?.role === "user"
+    ) {
+      updateIndices.push(index - 1);
+    }
+
+    updateIndices.forEach((i) => {
+      if (targetHistory[i]) {
+        targetHistory[i] = { ...targetHistory[i], isPruned: newPruneState };
+      }
+    });
+
+    set({ messages: targetHistory });
+    const match = sessions.find((s) => s.id === currentSessionId);
+    if (match) {
+      const updatedSession = {
+        ...match,
+        messages: targetHistory,
+        updatedAt: Date.now(),
+      };
+      await saveSession(updatedSession);
+      await get().loadSessionsFromStorage();
+    }
+  },
+
   sendMessage: async (content: string) => {
     const { model, messages, isLoading, currentSessionId, settings } = get();
     if (!model || isLoading || !content.trim()) return;
@@ -192,6 +361,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       role: "user",
       content,
       timestamp: Date.now(),
+      isPinned: false,
+      isPruned: false,
     };
     const updatedMessagesWithUser = [...messages, newUserMessage];
 
@@ -208,7 +379,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       model,
       messages: [
         ...updatedMessagesWithUser,
-        { role: "assistant", content: "", timestamp: Date.now() },
+        {
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+          isPinned: false,
+          isPruned: false,
+        },
       ],
       updatedAt: Date.now(),
     };
@@ -233,12 +410,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ? `${settings.baseUrl}/api/chat`
         : `${settings.baseUrl}/v1/chat/completions`;
 
+      const compiledActiveContext = updatedMessagesWithUser
+        .filter((msg) => !msg.isPruned)
+        .map(({ role, content }) => ({ role, content }));
+
       const standardPayload = {
         model,
-        messages: updatedMessagesWithUser.map(({ role, content }) => ({
-          role,
-          content,
-        })),
+        messages: compiledActiveContext,
         stream: true,
       };
 
@@ -289,7 +467,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const currentHistory = [...state.messages];
               if (currentHistory.length > 0) {
                 currentHistory[currentHistory.length - 1] = {
-                  role: "assistant",
+                  ...currentHistory[currentHistory.length - 1],
                   content: assistantTextAccumulator,
                   timestamp: Date.now(),
                 };

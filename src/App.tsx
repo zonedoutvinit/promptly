@@ -7,6 +7,7 @@ import { Header } from "./components/Header";
 import { ChatWindow } from "./components/ChatWindow";
 import { PromptOptions } from "./components/PromptOptions";
 import { MessageForm } from "./components/MessageForm";
+import { ContextSidebar } from "./components/ContextSidebar"; // 📌 Hooking up our new Telemetry Engine
 
 export default function App() {
   const {
@@ -66,6 +67,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen bg-theme-bg text-theme-text overflow-hidden transition-colors duration-200">
+      {/* LEFT RAIL: Sessions Navigation History */}
       <Sidebar
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
@@ -76,7 +78,9 @@ export default function App() {
         onNewChat={createNewSession}
       />
 
+      {/* WORKSPACE ROOT PANEL */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* GLOBAL HEADER CONTROLLER */}
         <Header
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
@@ -85,31 +89,39 @@ export default function App() {
           onModelChange={setModel}
         />
 
-        <ChatWindow
-          messages={messages}
-          isLoading={isLoading}
-          hasMessages={hasMessages}
-          messagesEndRef={messagesEndRef}
-        />
-
-        {/* Updated footer borders and structure to blend flawlessly */}
-        <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg">
-          {showOptions && (
-            <PromptOptions
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              dynamicSuggestedPrompts={dynamicSuggestedPrompts}
-              onSubmit={(text) => handleSubmit(undefined, text)}
+        {/* 🌟 CHAT STREAM + TELEMETRY HORIZONTAL ROW SEGREGATOR */}
+        <div className="flex-1 flex flex-row overflow-hidden w-full relative">
+          {/* PRIMARY WORKSPACE: Main Message Stream & Input Dock */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+            <ChatWindow
+              messages={messages}
+              isLoading={isLoading}
+              hasMessages={hasMessages}
+              messagesEndRef={messagesEndRef}
             />
-          )}
 
-          <MessageForm
-            input={input}
-            setInput={setInput}
-            isLoading={isLoading}
-            onSubmit={(e) => handleSubmit(e)}
-          />
-        </footer>
+            <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg">
+              {showOptions && (
+                <PromptOptions
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  dynamicSuggestedPrompts={dynamicSuggestedPrompts}
+                  onSubmit={(text) => handleSubmit(undefined, text)}
+                />
+              )}
+
+              <MessageForm
+                input={input}
+                setInput={setInput}
+                isLoading={isLoading}
+                onSubmit={(e) => handleSubmit(e)}
+              />
+            </footer>
+          </div>
+
+          {/* 📌 RIGHT RAIL: Advanced Telemetry & Selective Memory Context Maps */}
+          <ContextSidebar />
+        </div>
       </div>
     </div>
   );

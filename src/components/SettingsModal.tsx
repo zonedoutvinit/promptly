@@ -1,14 +1,28 @@
 // src/components/SettingsModal.tsx
 import React, { useState, useEffect, useMemo } from "react";
-import { useChatStore, EngineSettings } from "../store";
-import { Cpu, Palette, X } from "lucide-react";
+import { useChatStore, EngineSettings, SystemProfile } from "../store";
+import {
+  Cpu,
+  Palette,
+  Users,
+  X,
+  Plus,
+  Trash2,
+  Edit2,
+  Sparkles,
+  PenTool,
+  Code,
+  BrainCircuit,
+  Terminal,
+  Check,
+} from "lucide-react";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type SettingsTab = "engine" | "appearance";
+type SettingsTab = "engine" | "appearance" | "personas";
 
 interface ThemeItem {
   id: string;
@@ -20,11 +34,29 @@ interface ThemeItem {
   accent: string;
 }
 
+// Map literal string keys to Lucide icons dynamically inside rows
+const IconMap: Record<string, React.ComponentType<any>> = {
+  Sparkles,
+  PenTool,
+  Code,
+  BrainCircuit,
+  Terminal,
+};
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { settings, updateSettings, theme, setTheme } = useChatStore();
+  const {
+    settings,
+    updateSettings,
+    theme,
+    setTheme,
+    customPersonas,
+    addPersona,
+    updatePersona,
+    deletePersona,
+  } = useChatStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>("engine");
 
   // Local Scratchpad States (Changes only commit to global store on Submit)
@@ -35,6 +67,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [apiKey, setApiKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
+  // 🎭 Profile Management Core Editor State Scratchpads
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(
+    null,
+  );
+  const [personaLabel, setPersonaLabel] = useState("");
+  const [personaIcon, setPersonaIcon] = useState("Terminal");
+  const [personaPrompt, setPersonaPrompt] = useState("");
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+
   // Sync store settings to local scratchpad whenever modal mounts open
   useEffect(() => {
     if (isOpen) {
@@ -42,8 +83,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setProvider(settings.provider);
       setBaseUrl(settings.baseUrl);
       setApiKey("");
+
+      // Select first available persona profile as editor anchor blueprint
+      if (customPersonas.length > 0) {
+        loadPersonaIntoEditor(customPersonas[0]);
+      }
     }
-  }, [isOpen, settings, theme]);
+  }, [isOpen, settings, theme, customPersonas]);
+
+  const loadPersonaIntoEditor = (p: SystemProfile) => {
+    setSelectedPersonaId(p.id);
+    setPersonaLabel(p.label);
+    setPersonaIcon(p.icon);
+    setPersonaPrompt(p.prompt);
+    setIsCreatingNew(false);
+  };
+
+  const initNewPersonaForm = () => {
+    setSelectedPersonaId(null);
+    setPersonaLabel("");
+    setPersonaIcon("Terminal");
+    setPersonaPrompt("");
+    setIsCreatingNew(true);
+  };
+
+  const handleSavePersonaRow = () => {
+    if (!personaLabel.trim() || !personaPrompt.trim()) return;
+
+    if (isCreatingNew) {
+      addPersona({
+        label: personaLabel.trim(),
+        icon: personaIcon,
+        prompt: personaPrompt.trim(),
+      });
+      setIsCreatingNew(false);
+      if (customPersonas.length > 0) {
+        loadPersonaIntoEditor(customPersonas[customPersonas.length - 1]);
+      }
+    } else if (selectedPersonaId) {
+      updatePersona(selectedPersonaId, {
+        label: personaLabel.trim(),
+        icon: personaIcon,
+        prompt: personaPrompt.trim(),
+      });
+    }
+  };
 
   // Static Matrix Array Dataset Memoized for Performance
   const darkThemes = useMemo<ThemeItem[]>(
@@ -241,7 +325,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <button
         key={t.id}
         type="button"
-        onClick={() => setLocalTheme(t.id)} // Writes to local scratchpad only!
+        onClick={() => setLocalTheme(t.id)}
         className={`p-2.5 border rounded-xl cursor-pointer transition-all flex items-center justify-between text-left active:scale-[0.98] ${
           isSelected
             ? "bg-theme-panel border-theme-accent text-theme-accent shadow-xs"
@@ -283,7 +367,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in select-none">
-      <div className="bg-theme-bg border border-theme-border rounded-xl w-full max-w-3xl h-140 shadow-2xl flex overflow-hidden animate-messageSlide text-sm transition-colors duration-200">
+      <div className="bg-theme-bg border border-theme-border rounded-xl w-full max-w-4xl h-145 shadow-2xl flex overflow-hidden animate-messageSlide text-sm transition-colors duration-200">
         {/* ================= MODAL SIDEBAR PANEL ================= */}
         <aside className="w-48 bg-theme-panel/40 border-r border-theme-border p-4 flex flex-col justify-between shrink-0">
           <div className="space-y-4">
@@ -305,6 +389,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Cpu className="w-4 h-4 stroke-2" />
                 <span>Model Engine</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("personas")}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg font-medium transition-all cursor-pointer text-xs ${
+                  activeTab === "personas"
+                    ? "bg-theme-panel text-theme-accent border border-theme-border/80 shadow-xs"
+                    : "text-theme-muted hover:bg-theme-panel/40 hover:text-theme-text"
+                }`}
+              >
+                <Users className="w-4 h-4 stroke-2" />
+                <span>System Personas</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveTab("appearance")}
@@ -320,7 +418,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </nav>
           </div>
           <div className="px-2 text-[10px] text-theme-muted/70 font-mono tracking-tight">
-            V1.0.0 Node Connected
+            V1.1.0 Hub Active
           </div>
         </aside>
 
@@ -331,9 +429,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         >
           <div className="p-4 border-b border-theme-border flex justify-between items-center bg-theme-bg shrink-0">
             <h4 className="text-theme-text font-semibold tracking-wide capitalize">
-              {activeTab === "engine"
-                ? "Inference Coordination"
-                : "Theme Engine Workspace"}
+              {activeTab === "engine" && "Inference Coordination"}
+              {activeTab === "appearance" && "Theme Engine Workspace"}
+              {activeTab === "personas" && "Persona Architecture Studio"}
             </h4>
             <button
               type="button"
@@ -416,7 +514,168 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* TAB 2: APPEARANCE & THEMES */}
+            {/* ================= 🎭 TAB 2: SYSTEM PERSONAS MANAGEMENT ================= */}
+            {activeTab === "personas" && (
+              <div className="grid grid-cols-5 gap-4 h-full min-h-100 animate-chipFade">
+                {/* Master List Left Wing Column */}
+                <div className="col-span-2 flex flex-col border border-theme-border/60 rounded-xl bg-theme-panel/20 overflow-hidden">
+                  <div className="p-2 border-b border-theme-border/60 bg-theme-panel/40 flex items-center justify-between shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-theme-muted">
+                      Active Catalogs
+                    </span>
+                    <button
+                      type="button"
+                      onClick={initNewPersonaForm}
+                      className="p-1 rounded-md bg-theme-accent text-theme-bg hover:bg-theme-accent-hover transition cursor-pointer"
+                      title="Create Custom Profile Starter"
+                    >
+                      <Plus className="w-3 h-3 stroke-3" />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+                    {customPersonas.map((p) => {
+                      const ItemIcon = IconMap[p.icon] || Terminal;
+                      const isSelected =
+                        selectedPersonaId === p.id && !isCreatingNew;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => loadPersonaIntoEditor(p)}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${
+                            isSelected
+                              ? "bg-theme-panel text-theme-accent border border-theme-border"
+                              : "text-theme-text hover:bg-theme-panel/40"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate pr-2">
+                            <ItemIcon
+                              className={`w-3.5 h-3.5 shrink-0 ${isSelected ? "text-theme-accent" : "text-theme-muted"}`}
+                            />
+                            <span className="text-xs font-medium truncate">
+                              {p.label}
+                            </span>
+                          </div>
+
+                          {!p.isSystemDefault && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deletePersona(p.id);
+                                if (selectedPersonaId === p.id)
+                                  setSelectedPersonaId(
+                                    customPersonas[0]?.id || null,
+                                  );
+                              }}
+                              className="text-theme-muted hover:text-red-400 p-1 rounded transition shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Editor Matrix Frame Right Wing Column */}
+                <div className="col-span-3 flex flex-col space-y-3 bg-theme-panel/10 p-3 rounded-xl border border-theme-border/40">
+                  <div className="flex items-center gap-1.5 text-xs text-theme-muted font-bold uppercase tracking-wide border-b border-theme-border/40 pb-1.5">
+                    <Edit2 className="w-3.5 h-3.5 text-theme-accent" />
+                    <span>
+                      {isCreatingNew
+                        ? "Construct Custom Starter"
+                        : "Modify Blueprint Config"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-theme-muted uppercase tracking-wider">
+                      Display Label Name
+                    </label>
+                    <input
+                      type="text"
+                      disabled={
+                        customPersonas.find((p) => p.id === selectedPersonaId)
+                          ?.isSystemDefault && !isCreatingNew
+                      }
+                      value={personaLabel}
+                      onChange={(e) => setPersonaLabel(e.target.value)}
+                      placeholder="e.g. Legal Contract Reviewer"
+                      className="w-full bg-theme-panel border border-theme-border rounded-lg p-2 text-xs font-medium text-theme-text focus:outline-none focus:border-theme-accent/60 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-theme-muted uppercase tracking-wider">
+                      Visual Interface Icon Archetype
+                    </label>
+                    <div className="grid grid-cols-5 gap-1">
+                      {Object.keys(IconMap).map((iconKey) => {
+                        const IconChoice = IconMap[iconKey];
+                        const isChosen = personaIcon === iconKey;
+                        return (
+                          <button
+                            key={iconKey}
+                            type="button"
+                            disabled={
+                              customPersonas.find(
+                                (p) => p.id === selectedPersonaId,
+                              )?.isSystemDefault && !isCreatingNew
+                            }
+                            onClick={() => setPersonaIcon(iconKey)}
+                            className={`p-2 border rounded-lg flex items-center justify-center transition cursor-pointer disabled:opacity-40 ${
+                              isChosen
+                                ? "bg-theme-accent/10 border-theme-accent text-theme-accent"
+                                : "bg-theme-panel/40 border-theme-border hover:border-theme-text/30 text-theme-muted"
+                            }`}
+                          >
+                            <IconChoice className="w-4 h-4" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 flex flex-col space-y-1 min-h-35">
+                    <label className="text-[10px] font-bold text-theme-muted uppercase tracking-wider">
+                      System Directives Context Injector Payload
+                    </label>
+                    <textarea
+                      disabled={
+                        customPersonas.find((p) => p.id === selectedPersonaId)
+                          ?.isSystemDefault && !isCreatingNew
+                      }
+                      value={personaPrompt}
+                      onChange={(e) => setPersonaPrompt(e.target.value)}
+                      placeholder="Enter specific contextual behaviors, constraint boundaries, and criteria instructions formatting structures..."
+                      className="w-full flex-1 bg-theme-panel border border-theme-border rounded-lg p-2.5 text-xs text-theme-text focus:outline-none focus:border-theme-accent/60 font-mono resize-none leading-relaxed disabled:opacity-50"
+                    />
+                  </div>
+
+                  {!customPersonas.find((p) => p.id === selectedPersonaId)
+                    ?.isSystemDefault || isCreatingNew ? (
+                    <button
+                      type="button"
+                      onClick={handleSavePersonaRow}
+                      disabled={!personaLabel.trim() || !personaPrompt.trim()}
+                      className="w-full bg-theme-accent/10 hover:bg-theme-accent text-theme-accent hover:text-theme-bg border border-theme-accent/30 py-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Apply Document Blueprint changes</span>
+                    </button>
+                  ) : (
+                    <div className="text-[10px] text-theme-muted font-mono bg-theme-panel/40 p-2 rounded-lg border border-theme-border/40 text-center">
+                      🔒 Core factory profiles are locked from
+                      deletion/modifications.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: APPEARANCE & THEMES */}
             {activeTab === "appearance" && (
               <div className="space-y-4 h-full flex flex-col overflow-hidden animate-chipFade">
                 <div className="shrink-0">
@@ -460,14 +719,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 bg-theme-panel hover:bg-theme-panel/80 text-theme-text border border-theme-border rounded-lg transition-colors cursor-pointer text-xs"
+              className="px-4 py-1.5 bg-theme-panel hover:bg-theme-panel/80 text-theme-text border border-theme-border rounded-xl transition-colors cursor-pointer text-xs"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="px-4 py-1.5 bg-theme-accent hover:bg-theme-accent-hover text-theme-bg rounded-lg transition-colors cursor-pointer font-medium text-xs disabled:opacity-50"
+              className="px-4 py-1.5 bg-theme-accent hover:bg-theme-accent-hover text-theme-bg rounded-xl transition-colors cursor-pointer font-medium text-xs disabled:opacity-50 shadow-sm"
             >
               {isSaving ? "Encrypting..." : "Commit Settings"}
             </button>
