@@ -6,6 +6,9 @@ import { useChatStore, ProviderType } from "../store";
 interface HeaderProps {
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
+  model: string;
+  availableModels: string[];
+  onModelChange: (model: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
