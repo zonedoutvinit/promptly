@@ -1,6 +1,6 @@
 // src/components/SettingsModal.tsx
 import React, { useState, useEffect, useMemo } from "react";
-import { useChatStore, EngineSettings, SystemProfile } from "../store";
+import { useChatStore, ProviderType, SystemProfile } from "../store";
 import {
   Cpu,
   Palette,
@@ -34,7 +34,6 @@ interface ThemeItem {
   accent: string;
 }
 
-// Map literal string keys to Lucide icons dynamically inside rows
 const IconMap: Record<string, React.ComponentType<any>> = {
   Sparkles,
   PenTool,
@@ -49,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const {
     settings,
-    updateSettings,
+    updateProviderConfig, // 🔄 Hooked into updated multi-provider method
     theme,
     setTheme,
     customPersonas,
@@ -59,10 +58,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   } = useChatStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>("engine");
 
-  // Local Scratchpad States (Changes only commit to global store on Submit)
+  // Local Scratchpad States
   const [localTheme, setLocalTheme] = useState<string>(theme);
-  const [provider, setProvider] =
-    useState<EngineSettings["provider"]>("ollama");
+  const [provider, setProvider] = useState<ProviderType>("ollama");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -80,12 +78,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setLocalTheme(theme);
-      setProvider(settings.provider);
-      setBaseUrl(settings.baseUrl);
-      setApiKey("");
 
-      // Select first available persona profile as editor anchor blueprint
-      if (customPersonas.length > 0) {
+      // Pull current focus state from dictionary definitions safely
+      const activeProvider = settings.currentProvider;
+      const providerConfig = settings.providers[activeProvider];
+
+      setProvider(activeProvider);
+      setBaseUrl(providerConfig?.baseUrl || "");
+      setApiKey(""); // Keep input field visually empty for custom modifications
+
+      if (customPersonas.length > 0 && !selectedPersonaId) {
         loadPersonaIntoEditor(customPersonas[0]);
       }
     }
@@ -117,9 +119,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         prompt: personaPrompt.trim(),
       });
       setIsCreatingNew(false);
-      if (customPersonas.length > 0) {
-        loadPersonaIntoEditor(customPersonas[customPersonas.length - 1]);
-      }
     } else if (selectedPersonaId) {
       updatePersona(selectedPersonaId, {
         label: personaLabel.trim(),
@@ -129,7 +128,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  // Static Matrix Array Dataset Memoized for Performance
   const darkThemes = useMemo<ThemeItem[]>(
     () => [
       {
@@ -289,29 +287,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = e.target.value as EngineSettings["provider"];
+    const selected = e.target.value as ProviderType;
     setProvider(selected);
-    if (selected === "ollama") setBaseUrl("http://localhost:11434");
-    else if (selected === "lm-studio") setBaseUrl("http://localhost:1234");
+
+    // Pull configurations dynamically from our distinct state maps
+    const existingConfig = settings.providers[selected];
+    if (existingConfig?.baseUrl) {
+      setBaseUrl(existingConfig.baseUrl);
+    } else {
+      if (selected === "ollama") setBaseUrl("http://localhost:11434");
+      else if (selected === "lm-studio") setBaseUrl("http://localhost:1234");
+      else setBaseUrl("");
+    }
   };
 
-  // Global Transaction Commit Handler
   const handleCommitSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // 1. Commit theme change downstream to context DOM node handles
       setTheme(localTheme);
       document.documentElement.setAttribute("data-theme", localTheme);
 
-      // 2. Commit engine parameters to hardware configuration streams
-      await updateSettings(
-        { baseUrl: baseUrl.trim(), provider },
+      // 🛡️ Executing the precise configuration routing logic for your updated store
+      await updateProviderConfig(
+        provider,
+        { baseUrl: baseUrl.trim() },
         apiKey.trim() || undefined,
       );
 
+      // Force-sync global setting provider value if they altered it directly here
+      if (settings.currentProvider !== provider) {
+        // This ensures the header updates instantly if edited via modal parameters
+        useChatStore.getState().setProvider(provider);
+      }
+
       onClose();
     } catch (err) {
+      console.error(err);
       alert("Error processing security encryption tokens.");
     } finally {
       setIsSaving(false);
@@ -473,39 +485,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       OpenAI Compatible Gateway
                     </option>
+                    <option
+                      value="gemini"
+                      className="bg-theme-bg text-theme-text"
+                    >
+                      Google Gemini AI
+                    </option>
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-theme-muted uppercase tracking-wider">
-                    Server Endpoint Connection
-                  </label>
-                  <input
-                    type="url"
-                    required
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="e.g. http://localhost:11434"
-                    className="w-full bg-theme-panel border border-theme-border rounded-lg p-2.5 text-theme-text focus:outline-none focus:border-theme-accent/60 text-xs font-mono"
-                  />
-                </div>
+                {provider !== "gemini" && (
+                  <div className="space-y-1.5 animate-chipFade">
+                    <label className="text-[11px] font-bold text-theme-muted uppercase tracking-wider">
+                      Server Endpoint Connection
+                    </label>
+                    <input
+                      type="url"
+                      required={true}
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder="e.g. http://localhost:11434"
+                      className="w-full bg-theme-panel border border-theme-border rounded-lg p-2.5 text-theme-text focus:outline-none focus:border-theme-accent/60 text-xs font-mono"
+                    />
+                  </div>
+                )}
 
                 {provider !== "ollama" && (
                   <div className="space-y-1.5 animate-chipFade">
                     <label className="text-[11px] font-bold text-theme-muted uppercase tracking-wider flex items-center gap-1.5">
                       <span>API Bearer Secret Token</span>
                       <span className="text-[9px] text-theme-accent font-normal normal-case font-mono">
-                        (client-encrypted)
+                        {provider === "gemini"
+                          ? "(Direct Cloud Secret Required)"
+                          : "(client-encrypted)"}
                       </span>
                     </label>
                     <input
                       type="password"
+                      required={
+                        provider === "gemini" &&
+                        !settings.providers.gemini?.encryptedApiKey
+                      }
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       placeholder={
-                        settings.encryptedApiKey
+                        settings.providers[provider]?.encryptedApiKey
                           ? "•••••••••••••••• (Saved encrypted)"
-                          : "Enter secret key passcode"
+                          : "Enter secret API passcode"
                       }
                       className="w-full bg-theme-panel border border-theme-border rounded-lg p-2.5 text-theme-text focus:outline-none focus:border-theme-accent/60 text-xs font-mono placeholder:text-theme-muted"
                     />
@@ -514,10 +540,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* ================= 🎭 TAB 2: SYSTEM PERSONAS MANAGEMENT ================= */}
+            {/* TAB 2: SYSTEM PERSONAS MANAGEMENT */}
             {activeTab === "personas" && (
               <div className="grid grid-cols-5 gap-4 h-full min-h-100 animate-chipFade">
-                {/* Master List Left Wing Column */}
                 <div className="col-span-2 flex flex-col border border-theme-border/60 rounded-xl bg-theme-panel/20 overflow-hidden">
                   <div className="p-2 border-b border-theme-border/60 bg-theme-panel/40 flex items-center justify-between shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-theme-muted">
@@ -527,7 +552,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       type="button"
                       onClick={initNewPersonaForm}
                       className="p-1 rounded-md bg-theme-accent text-theme-bg hover:bg-theme-accent-hover transition cursor-pointer"
-                      title="Create Custom Profile Starter"
                     >
                       <Plus className="w-3 h-3 stroke-3" />
                     </button>
@@ -542,7 +566,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div
                           key={p.id}
                           onClick={() => loadPersonaIntoEditor(p)}
-                          className={`w-full flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${
+                          className={`group w-full flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${
                             isSelected
                               ? "bg-theme-panel text-theme-accent border border-theme-border"
                               : "text-theme-text hover:bg-theme-panel/40"
@@ -563,12 +587,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deletePersona(p.id);
-                                if (selectedPersonaId === p.id)
+                                if (selectedPersonaId === p.id) {
                                   setSelectedPersonaId(
                                     customPersonas[0]?.id || null,
                                   );
+                                }
                               }}
-                              className="text-theme-muted hover:text-red-400 p-1 rounded transition shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              className="text-theme-muted hover:text-red-400 p-1 rounded transition shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100 animate-fade-in"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -579,7 +604,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Editor Matrix Frame Right Wing Column */}
                 <div className="col-span-3 flex flex-col space-y-3 bg-theme-panel/10 p-3 rounded-xl border border-theme-border/40">
                   <div className="flex items-center gap-1.5 text-xs text-theme-muted font-bold uppercase tracking-wide border-b border-theme-border/40 pb-1.5">
                     <Edit2 className="w-3.5 h-3.5 text-theme-accent" />
@@ -688,9 +712,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 </div>
 
-                {/* 🌟 OPTIMIZED GAP CONTAINER: Switched to pr-4 to create separation from scrollbar knob */}
                 <div className="flex-1 overflow-y-auto pr-4 space-y-5 max-h-80">
-                  {/* DARK VARIANTS */}
                   <div className="space-y-2">
                     <div className="text-[10px] font-bold text-theme-muted/80 uppercase tracking-widest pl-1">
                       Dark Configurations (8)
@@ -700,7 +722,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* LIGHT VARIANTS */}
                   <div className="space-y-2">
                     <div className="text-[10px] font-bold text-theme-muted/80 uppercase tracking-widest pl-1">
                       Light Configurations (8)
@@ -714,7 +735,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          {/* Persistent Form Commit Dock */}
           <div className="p-4 border-t border-theme-border bg-theme-panel/10 flex justify-end gap-3 shrink-0">
             <button
               type="button"

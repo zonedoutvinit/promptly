@@ -9,10 +9,20 @@ import {
 } from "./utils/db";
 import { decryptKey, encryptKey } from "./utils/crypto";
 
-export interface EngineSettings {
+export type ProviderType =
+  | "ollama"
+  | "lm-studio"
+  | "openai-compatible"
+  | "gemini";
+
+export interface ProviderConfig {
   baseUrl: string;
-  provider: "ollama" | "lm-studio" | "openai-compatible";
   encryptedApiKey?: string;
+}
+
+export interface EngineSettings {
+  currentProvider: ProviderType;
+  providers: Record<ProviderType, ProviderConfig>;
 }
 
 export interface SystemProfile {
@@ -38,8 +48,12 @@ interface ChatState {
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
   setTheme: (theme: string) => void;
-  updateSettings: (
-    newSettings: EngineSettings,
+
+  // 🔄 Multi-Provider Real-time Orchestration
+  setProvider: (provider: ProviderType) => Promise<void>;
+  updateProviderConfig: (
+    provider: ProviderType,
+    config: Partial<ProviderConfig>,
     rawKey?: string,
   ) => Promise<void>;
 
@@ -70,9 +84,13 @@ interface ChatState {
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
-  baseUrl: "http://localhost:11434",
-  provider: "ollama",
-  encryptedApiKey: "",
+  currentProvider: "ollama",
+  providers: {
+    ollama: { baseUrl: "http://localhost:11434", encryptedApiKey: "" },
+    "lm-studio": { baseUrl: "http://localhost:1234", encryptedApiKey: "" },
+    "openai-compatible": { baseUrl: "", encryptedApiKey: "" },
+    gemini: { baseUrl: "", encryptedApiKey: "" },
+  },
 };
 
 const DEFAULT_PERSONAS: SystemProfile[] = [
@@ -114,7 +132,45 @@ const getInitialSettings = (): EngineSettings => {
   const local = localStorage.getItem("promptly_engine_settings");
   if (!local) return DEFAULT_SETTINGS;
   try {
-    return JSON.parse(local);
+    const parsed = JSON.parse(local);
+    // Backward compatibility layer check in case legacy flat structures exist
+    if (!parsed.providers) {
+      return {
+        currentProvider: parsed.provider || "ollama",
+        providers: {
+          ollama: {
+            baseUrl:
+              parsed.provider === "ollama"
+                ? parsed.baseUrl
+                : "http://localhost:11434",
+            encryptedApiKey:
+              parsed.provider === "ollama" ? parsed.encryptedApiKey : "",
+          },
+          "lm-studio": {
+            baseUrl:
+              parsed.provider === "lm-studio"
+                ? parsed.baseUrl
+                : "http://localhost:1234",
+            encryptedApiKey:
+              parsed.provider === "lm-studio" ? parsed.encryptedApiKey : "",
+          },
+          "openai-compatible": {
+            baseUrl:
+              parsed.provider === "openai-compatible" ? parsed.baseUrl : "",
+            encryptedApiKey:
+              parsed.provider === "openai-compatible"
+                ? parsed.encryptedApiKey
+                : "",
+          },
+          gemini: {
+            baseUrl: parsed.provider === "gemini" ? parsed.baseUrl : "",
+            encryptedApiKey:
+              parsed.provider === "gemini" ? parsed.encryptedApiKey : "",
+          },
+        },
+      };
+    }
+    return parsed;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -161,7 +217,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (abortController) {
       abortController.abort();
 
-      // Save what we have accumulated up to this point inside IndexedDB
       if (currentSessionId) {
         const match = sessions.find((s) => s.id === currentSessionId);
         const activeTitle = match?.title || "Active Discussion";
@@ -185,14 +240,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ theme });
   },
 
-  updateSettings: async (newSettings: EngineSettings, rawKey?: string) => {
-    let encryptedApiKey = newSettings.encryptedApiKey || "";
+  // Header Fast-Switch Pipeline Trigger
+  setProvider: async (provider: ProviderType) => {
+    const currentSettings = get().settings;
+    const updatedSettings = {
+      ...currentSettings,
+      currentProvider: provider,
+    };
 
-    if (rawKey !== undefined) {
-      encryptedApiKey = rawKey ? await encryptKey(rawKey) : "";
-    }
-
-    const updatedSettings = { ...newSettings, encryptedApiKey };
     localStorage.setItem(
       "promptly_engine_settings",
       JSON.stringify(updatedSettings),
@@ -202,7 +257,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await get().fetchModels();
   },
 
-  // Persona Store Engine Logic Reductions
+  // Individual Parameter Mapping (Called by your settings save configurations)
+  updateProviderConfig: async (
+    provider: ProviderType,
+    config: Partial<ProviderConfig>,
+    rawKey?: string,
+  ) => {
+    const currentSettings = get().settings;
+    let encryptedApiKey =
+      config.encryptedApiKey ||
+      currentSettings.providers[provider].encryptedApiKey ||
+      "";
+
+    if (rawKey !== undefined) {
+      encryptedApiKey = rawKey ? await encryptKey(rawKey) : "";
+    }
+
+    const updatedSettings = {
+      ...currentSettings,
+      providers: {
+        ...currentSettings.providers,
+        [provider]: {
+          ...currentSettings.providers[provider],
+          ...config,
+          encryptedApiKey,
+        },
+      },
+    };
+
+    localStorage.setItem(
+      "promptly_engine_settings",
+      JSON.stringify(updatedSettings),
+    );
+    set({ settings: updatedSettings });
+
+    if (currentSettings.currentProvider === provider) {
+      set({ availableModels: [], model: "" });
+      await get().fetchModels();
+    }
+  },
+
   addPersona: (persona) => {
     const newPersona: SystemProfile = {
       ...persona,
@@ -229,28 +323,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   fetchModels: async () => {
     const { settings } = get();
+    const provider = settings.currentProvider;
+    const activeProviderConfig = settings.providers[provider];
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
 
-    if (settings.encryptedApiKey) {
-      const activeKey = await decryptKey(settings.encryptedApiKey);
-      if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
+    let targetUrl =
+      provider === "gemini"
+        ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
+        : `${activeProviderConfig.baseUrl}/v1/models`;
+
+    if (activeProviderConfig.encryptedApiKey) {
+      const activeKey = await decryptKey(activeProviderConfig.encryptedApiKey);
+      if (activeKey) {
+        headers["Authorization"] = `Bearer ${activeKey}`;
+      }
     }
 
     try {
-      if (settings.provider === "ollama") {
-        const response = await fetch(`${settings.baseUrl}/api/tags`, {
-          headers,
-        });
+      if (provider === "ollama") {
+        targetUrl = `${activeProviderConfig.baseUrl}/api/tags`;
+        const response = await fetch(targetUrl, { headers });
         if (!response.ok) throw new Error();
         const data = await response.json();
         const models = data.models.map((m: any) => m.name);
         set({ availableModels: models });
+      } else if (provider === "gemini") {
+        const targetGeminiModels = ["gemini-2.5-flash", "gemini-2.5-pro"];
+        try {
+          const response = await fetch(targetUrl, { headers });
+          if (!response.ok) throw new Error();
+          const data = await response.json();
+          const fetchedModels = data.data.map((m: any) => m.id);
+          const filtered = targetGeminiModels.filter((m) =>
+            fetchedModels.includes(m),
+          );
+
+          set({
+            availableModels:
+              filtered.length > 0 ? filtered : targetGeminiModels,
+          });
+        } catch {
+          set({ availableModels: targetGeminiModels });
+        }
       } else {
-        const response = await fetch(`${settings.baseUrl}/v1/models`, {
-          headers,
-        });
+        const response = await fetch(targetUrl, { headers });
         if (!response.ok) throw new Error();
         const data = await response.json();
         const models = data.data.map((m: any) => m.id);
@@ -258,7 +377,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       const models = get().availableModels;
-      if (models.length > 0 && !get().model) {
+      if (
+        models.length > 0 &&
+        (!get().model || !models.includes(get().model))
+      ) {
         set({ model: models[0] });
       }
     } catch (err) {
@@ -403,6 +525,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { model, messages, isLoading, currentSessionId, settings } = get();
     if (!model || isLoading || !content.trim()) return;
 
+    const provider = settings.currentProvider;
+    const activeProviderConfig = settings.providers[provider];
+
     let sessionId = currentSessionId || crypto.randomUUID();
     const isBrandNewSession = !currentSessionId;
     const controller = new AbortController();
@@ -455,15 +580,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (settings.encryptedApiKey) {
-        const activeKey = await decryptKey(settings.encryptedApiKey);
+
+      if (activeProviderConfig.encryptedApiKey) {
+        const activeKey = await decryptKey(
+          activeProviderConfig.encryptedApiKey,
+        );
         if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
       }
 
-      const isOllama = settings.provider === "ollama";
+      const isOllama = provider === "ollama";
+      const isGemini = provider === "gemini";
+
       const targetUrl = isOllama
-        ? `${settings.baseUrl}/api/chat`
-        : `${settings.baseUrl}/v1/chat/completions`;
+        ? `${activeProviderConfig.baseUrl}/api/chat`
+        : isGemini
+          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
+          : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
 
       const compiledActiveContext = updatedMessagesWithUser
         .filter((msg) => !msg.isPruned)
@@ -479,7 +611,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         method: "POST",
         headers,
         body: JSON.stringify(standardPayload),
-        signal: controller.signal, // Link transactional hardware runtime interrupt
+        signal: controller.signal,
       });
 
       if (!response.ok || !response.body)
@@ -548,11 +680,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await get().loadSessionsFromStorage();
     } catch (error: any) {
       if (error.name === "AbortError") {
-        console.log(
-          "Local streaming request gracefully severed by the client device.",
-        );
+        console.log("Streaming request gracefully severed by the client.");
       } else {
-        console.error("Local inference execution failed:", error);
+        console.error("Inference execution failed:", error);
         set({ isLoading: false, abortController: null });
       }
     }
@@ -582,8 +712,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { model, messages, isLoading, currentSessionId, settings } = get();
     if (!model || isLoading || !currentSessionId) return;
 
-    // Locate the matching User Prompt that generated this assistant response checkpoint
-    // If regenerating an assistant index directly, target the prompt right before it (index - 1)
+    const provider = settings.currentProvider;
+    const activeProviderConfig = settings.providers[provider];
+
     const targetUserIdx = messages[index].role === "user" ? index : index - 1;
     if (targetUserIdx < 0 || messages[targetUserIdx].role !== "user") return;
 
@@ -617,17 +748,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (settings.encryptedApiKey) {
-        const activeKey = await decryptKey(settings.encryptedApiKey);
+      if (activeProviderConfig.encryptedApiKey) {
+        const activeKey = await decryptKey(
+          activeProviderConfig.encryptedApiKey,
+        );
         if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
       }
 
-      const isOllama = settings.provider === "ollama";
-      const targetUrl = isOllama
-        ? `${settings.baseUrl}/api/chat`
-        : `${settings.baseUrl}/v1/chat/completions`;
+      const isOllama = provider === "ollama";
+      const isGemini = provider === "gemini";
 
-      // Build payload options, passing parameter overrides securely to matching inference engines
+      const targetUrl = isOllama
+        ? `${activeProviderConfig.baseUrl}/api/chat`
+        : isGemini
+          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
+          : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
+
       const standardPayload: Record<string, any> = {
         model,
         messages: compiledActiveContext,
@@ -641,6 +777,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           frequency_penalty: overrides.frequencyPenalty,
           presence_penalty: overrides.presencePenalty,
         };
+      } else if (isGemini) {
+        standardPayload.temperature = overrides.temperature;
+        standardPayload.top_p = overrides.topP;
       } else {
         standardPayload.temperature = overrides.temperature;
         standardPayload.top_p = overrides.topP;
@@ -656,7 +795,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       if (!response.ok || !response.body)
-        throw new Error("Checkpoint regeneration generation error");
+        throw new Error("Checkpoint regeneration error");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -723,11 +862,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     } catch (error: any) {
       if (error.name === "AbortError") {
-        console.log(
-          "Checkpoint regeneration loop gracefully halted by the system engine.",
-        );
+        console.log("Checkpoint regeneration loop gracefully halted.");
       } else {
-        console.error("Local context regeneration execution failed:", error);
+        console.error("Context regeneration failed:", error);
         set({ isLoading: false, abortController: null });
       }
     }
