@@ -1,17 +1,35 @@
 {
-  "name": "frontend",
+  "name": "promptly",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "dev": "webpack serve --mode development --open",
-    "build": "tsc && webpack --mode production",
-    "lint": "eslint . --ext ts,tsx",
-    "preview": "webpack serve --mode production"
+  "description": "A cross-platform AI-powered terminal interface designed for seamless integration with both local and cloud-based Large Language Models (LLMs).",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zonedoutvinit/promptly.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "dev:web": "webpack serve --mode development",
+    "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:electron\"",
+    "build": "tsc && webpack --mode production",
+    "preview": "webpack serve --mode production",
+    "start:desktop": "npm run build && NODE_ENV=production electron .",
+    "lint": "eslint . --ext ts,tsx",
+    "dist": "npm run build && electron-builder"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "terminal",
+    "electron",
+    "productivity",
+    "developer-tools"
+  ],
+  "author": {
+    "name": "Vinit Damodar",
+    "email": "damodarvinit425@gmail.com"
+  },
+  "license": "GPL-3.0",
   "type": "commonjs",
   "dependencies": {
     "lucide-react": "^1.17.0",
@@ -26,7 +44,10 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.5.0",
+    "concurrently": "^9.1.2",
     "css-loader": "^7.1.4",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
     "html-webpack-plugin": "^5.6.7",
     "postcss": "^8.5.15",
     "postcss-loader": "^8.2.1",
@@ -34,8 +55,33 @@
     "swc-loader": "^0.2.7",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
+    "wait-on": "^8.0.2",
     "webpack": "^5.107.2",
     "webpack-cli": "^7.0.3",
     "webpack-dev-server": "^5.2.4"
+  },
+  "build": {
+    "appId": "com.promptly.app",
+    "files": [
+      "main.js",
+      "dist/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "icon": "public/favicon.ico",
+      "target": "nsis"
+    },
+    "mac": {
+      "icon": "public/icon.icns",
+      "target": "dmg"
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "rpm"
+      ],
+      "category": "Utility",
+      "icon": "public/android-chrome-512x512.png"
+    }
   }
 }
