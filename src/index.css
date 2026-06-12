@@ -259,3 +259,22 @@ body {
     border: 3px solid transparent;
     background-clip: padding-box;
 }
+
+* {
+    /* Prevents sub-pixel rounding errors from breaking layouts */
+    box-sizing: border-box;
+}
+
+body {
+    /* Forces the browser to snap to whole pixels, keeping UI sharp */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+img,
+svg,
+canvas {
+    /* Prevents blurry images at odd scaling metrics */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+}
