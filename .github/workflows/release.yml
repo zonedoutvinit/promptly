@@ -13,7 +13,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Define exact combinations of OS, friendly names, and builder arguments
+        include:
+          - os: windows-latest
+            name: Windows
+            args: --win
+          - os: macos-latest
+            name: macOS
+            args: --mac
+          - os: ubuntu-latest
+            name: Linux-Deb
+            args: --linux deb
+          - os: ubuntu-latest
+            name: Linux-RPM
+            args: --linux rpm
+          - os: ubuntu-latest
+            name: Linux-Pacman
+            args: --linux pacman
 
     steps:
       - name: Checkout code
@@ -28,12 +44,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # Updated to Node 24
+          cache: "npm" # Automatically caches dependencies to shave off install time
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build and Release
+      # Decouple the build step from the packaging step
+      - name: Build Source
+        run: npm run build
+
+      # Run electron-builder with the specific arguments defined in the matrix
+      - name: Package Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run dist
@@ -41,5 +63,11 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-artifacts
-          path: dist/*
+          name: ${{ matrix.name }}-artifacts
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.deb
+            dist/*.rpm
+            dist/*.pacman
+            dist/*.tar.*
