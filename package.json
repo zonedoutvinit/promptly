@@ -72,7 +72,7 @@
       "target": "nsis"
     },
     "mac": {
-      "icon": "public/icon.icns",
+      "icon": "public/icon.png",
       "target": "dmg"
     },
     "linux": {
@@ -81,7 +81,7 @@
         "rpm"
       ],
       "category": "Utility",
-      "icon": "public/android-chrome-512x512.png"
+      "icon": "public/icon.png"
     }
   }
 }
