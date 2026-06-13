@@ -249,8 +249,8 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
         }
       },
       {
-        root: null, // Scans fallback context viewport boundaries
-        rootMargin: "300px 0px 300px 0px", // Pre-render buffer zone so elements snap into existence early
+        root: null,
+        rootMargin: "400px 0px 400px 0px", // Expanded to 400px for smoother virtual padding transition
       },
     );
 
@@ -275,7 +275,9 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
       <div
         ref={containerRef}
         style={{ height: `${height}px` }}
-        className="w-full pointer-events-none opacity-0"
+        className={`w-full pointer-events-none opacity-0 border p-3 flex flex-col ${
+          isUser ? "ml-auto self-end" : "mr-auto"
+        }`}
       />
     );
   }
