@@ -20,7 +20,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasDynamicPrompts = dynamicSuggestedPrompts.length > 0;
 
-  // 1️⃣ Hardware-Accelerated Programmatic Smooth Scroll Loop
+  // Hardware-Accelerated Programmatic Smooth Scroll Loop
   const scrollCarousel = (direction: "left" | "right") => {
     if (!scrollContainerRef.current) return;
 
@@ -58,16 +58,13 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
     requestAnimationFrame(animateScroll);
   };
 
-  // 2️⃣ Edit Action Interceptor Pipeline
-  const handleEditOption = (e: React.MouseEvent, promptText: string) => {
+  //  Clicking the chip now stages the text for editing
+  const stagePromptForEdit = (e: React.MouseEvent, promptText: string) => {
     e.stopPropagation(); // Stop the button's parent bubble click from firing onSubmit
-
-    // Locate target textarea via shared layout node hierarchy
     const footerElement = document.querySelector("footer");
     const textarea = footerElement?.querySelector("textarea");
 
     if (textarea) {
-      // Find the React state setter by walking up to the DOM instance property tracker
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
         "value",
@@ -107,7 +104,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
                   : "text-theme-muted hover:text-theme-text"
               }`}
             >
-              Structural Paths
+              Default Paths
             </button>
           </div>
         ) : (
@@ -119,16 +116,13 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="text-theme-muted hover:text-theme-text p-1 hover:bg-theme-panel rounded-md transition-all flex items-center justify-center cursor-pointer"
-          title={isExpanded ? "Collapse tray" : "Expand tray"}
+          className="text-theme-muted hover:text-theme-text p-1 hover:bg-theme-panel rounded-md transition-all cursor-pointer"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
-            className={`w-3.5 h-3.5 transform transition-transform duration-200 ${
-              isExpanded ? "" : "-rotate-180"
-            }`}
+            className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "" : "-rotate-180"}`}
           >
             <path
               fillRule="evenodd"
@@ -141,53 +135,42 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
 
       {/* ================= HORIZONTAL CAROUSEL TRAY DOCK ================= */}
       {isExpanded && (
-        <div className="relative w-full overflow-hidden group/carousel flex items-center">
-          {/* Left Arrow Controller */}
-          {activeTab === "dynamic" && dynamicSuggestedPrompts.length > 0 && (
+        <div className="relative w-full overflow-hidden flex items-center">
+          {activeTab === "dynamic" && hasDynamicPrompts && (
             <button
               type="button"
               onClick={() => scrollCarousel("left")}
-              className="absolute left-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted hover:text-theme-text rounded-md opacity-70 hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm shadow-md"
+              className="absolute left-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted rounded-md backdrop-blur-sm shadow-md cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
           )}
 
-          {/* Swipe Container Track */}
           <div
             ref={scrollContainerRef}
-            className={`flex flex-row flex-nowrap gap-2 items-center overflow-x-auto pb-1.5 pt-0.5 scrollbar-none scroll-smooth w-full ${activeTab === "generic" ? "px-3" : "px-6"}`}
+            className={`flex flex-row flex-nowrap gap-2 items-center overflow-x-auto pb-1.5 pt-0.5 scrollbar-none w-full ${activeTab === "generic" ? "px-3" : "px-6"}`}
           >
             {activeTab === "dynamic" && hasDynamicPrompts
               ? dynamicSuggestedPrompts.map((promptText, i) => (
                   <div
                     key={`dynamic-${i}`}
-                    onClick={() => onSubmit(promptText)}
-                    className="flex items-center gap-1.5 text-xs bg-theme-accent/5 hover:bg-theme-accent/10 text-theme-accent border border-theme-accent/20 pl-3 pr-2 py-1.5 rounded-xl transition-all shrink-0 max-w-65 font-mono cursor-pointer active:scale-95 group/chip animate-chipFade"
+                    onClick={(e) => stagePromptForEdit(e, promptText)}
+                    className="flex items-center text-xs bg-theme-accent/5 hover:bg-theme-accent/10 text-theme-accent border border-theme-accent/20 px-3 py-1.5 rounded-xl transition-all duration-300 ease-out shrink-0 font-mono cursor-pointer hover:scale-105 hover:border-theme-accent/40 active:scale-95 animate-chipFade"
                   >
-                    <span className="truncate">"{promptText}"</span>
-                    {/* Inline micro-edit mechanism */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleEditOption(e, promptText)}
-                      title="Edit option structure"
-                      className="p-1 rounded-md text-theme-accent/60 hover:text-theme-accent hover:bg-theme-accent/10 transition shrink-0 cursor-pointer"
-                    >
-                      <Edit3 className="w-3 h-3" />
-                    </button>
+                    "{promptText}"
                   </div>
                 ))
               : genericOptions.map((opt, i) => (
                   <div
                     key={`generic-${i}`}
                     onClick={() => onSubmit(opt.prompt)}
-                    className="flex items-center gap-1.5 text-xs bg-theme-panel hover:bg-theme-panel/80 text-theme-text/80 hover:text-theme-text border border-theme-border pl-3 pr-2 py-1.5 rounded-xl transition-all shrink-0 font-medium cursor-pointer active:scale-95 group/chip animate-chipFade"
+                    className="flex items-center text-xs bg-theme-panel hover:bg-theme-panel/80 text-theme-text/80 hover:text-theme-text border border-theme-border px-3 py-1.5 rounded-xl transition-all duration-300 ease-out shrink-0 font-medium cursor-pointer hover:scale-105 hover:border-theme-text/30 active:scale-95 animate-chipFade"
                   >
                     <span>{opt.label}</span>
                     {/* Inline micro-edit mechanism */}
                     <button
                       type="button"
-                      onClick={(e) => handleEditOption(e, opt.prompt)}
+                      onClick={(e) => stagePromptForEdit(e, opt.prompt)}
                       title="Stage option for editing"
                       className="p-1 rounded-md text-theme-muted hover:text-theme-text hover:bg-black/20 transition shrink-0 cursor-pointer"
                     >
@@ -197,20 +180,15 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
                 ))}
           </div>
 
-          {/* Right Arrow Controller */}
-          {activeTab === "dynamic" && dynamicSuggestedPrompts.length > 0 && (
+          {activeTab === "dynamic" && hasDynamicPrompts && (
             <button
               type="button"
               onClick={() => scrollCarousel("right")}
-              className="absolute right-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted hover:text-theme-text rounded-md opacity-70 hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm shadow-md"
+              className="absolute right-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted rounded-md backdrop-blur-sm shadow-md cursor-pointer"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           )}
-
-          {/* Fade mask for smooth clipping visual feedback */}
-          <div className="absolute top-0 right-0 h-full w-6 bg-linear-to-l from-theme-bg to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 h-full w-6 bg-linear-to-r from-theme-bg to-transparent pointer-events-none" />
         </div>
       )}
     </div>

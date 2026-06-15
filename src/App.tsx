@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useChatStore } from "./store";
 import { getModelSuggestedPrompts } from "./utils/chatHelpers";
 import { Sidebar } from "./components/Sidebar";
@@ -48,9 +48,13 @@ export default function App() {
   const showOptions =
     hasMessages && !isLoading && lastMessage?.role === "assistant";
 
-  const dynamicSuggestedPrompts = showOptions
-    ? getModelSuggestedPrompts(lastMessage)
-    : [];
+  const isProcessingSuggestions = isLoading && messages.length > 0; // The "Typing Indicator" state
+
+  const dynamicSuggestedPrompts = useMemo(() => {
+    if (!showOptions || !lastMessage) return [];
+    const data = getModelSuggestedPrompts(lastMessage);
+    return data;
+  }, [lastMessage, showOptions, currentSessionId]);
 
   useEffect(() => {
     if (dynamicSuggestedPrompts.length === 0) {
@@ -106,14 +110,19 @@ export default function App() {
             />
 
             <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg">
-              {showOptions && (
+              {isProcessingSuggestions ? (
+                <div className="flex items-center gap-2 animate-pulse px-4 py-2 text-xs text-theme-muted">
+                  <div className="w-1.5 h-1.5 rounded-full bg-theme-accent" />
+                  Analyzing path...
+                </div>
+              ) : showOptions ? (
                 <PromptOptions
                   activeTab={activeTab}
                   setActiveTab={setActiveTab}
                   dynamicSuggestedPrompts={dynamicSuggestedPrompts}
                   onSubmit={(text) => handleSubmit(undefined, text)}
                 />
-              )}
+              ) : null}
 
               <MessageForm
                 input={input}

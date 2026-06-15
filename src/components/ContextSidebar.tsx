@@ -4,21 +4,41 @@ import { useChatStore } from "../store";
 import { Pin, Scissors, Activity, Layers, HelpCircle } from "lucide-react";
 
 export const ContextSidebar: React.FC = () => {
-  const { messages, model, toggleMessagePin, toggleMessagePrune } =
-    useChatStore();
+  const {
+    messages,
+    model,
+    toggleMessagePin,
+    toggleMessagePrune,
+    getContextWindowLimit,
+  } = useChatStore();
+
+  // Pull the dynamic context window limit directly from our custom store state selector
+  const contextWindowLimit = getContextWindowLimit
+    ? getContextWindowLimit()
+    : 4096;
 
   // Fast client-side character estimation utility (4 chars ~ 1 Token)
   const contextStats = useMemo(() => {
     let totalTokens = 0;
     let activeTokens = 0;
-    let pinnedCount = 0;
+
+    // Track unique fingerprints matching store constraint layer checks
+    const uniquePinSignatures = new Set<string>();
     let prunedCount = 0;
 
     messages.forEach((msg) => {
       const estimatedTokens = Math.ceil((msg.content || "").length / 4);
       totalTokens += estimatedTokens;
 
-      if (msg.isPinned) pinnedCount++;
+      if (msg.isPinned && !msg.isPruned) {
+        const fingerprint = msg.content
+          .slice(0, 50)
+          .toLowerCase()
+          .replace(/\s+/g, "")
+          .trim();
+        uniquePinSignatures.add(fingerprint);
+      }
+
       if (msg.isPruned) {
         prunedCount++;
       } else {
@@ -26,8 +46,7 @@ export const ContextSidebar: React.FC = () => {
       }
     });
 
-    // Default safety cap setting for local-first runners (e.g. 4096 / 8192 tokens)
-    const contextWindowLimit = 4096;
+    const pinnedCount = uniquePinSignatures.size;
     const loadPercentage = Math.min(
       Math.round((activeTokens / contextWindowLimit) * 100),
       100,
@@ -39,8 +58,18 @@ export const ContextSidebar: React.FC = () => {
       pinnedCount,
       prunedCount,
       loadPercentage,
-      contextWindowLimit,
     };
+  }, [messages, contextWindowLimit]);
+
+  // Sliding Window Diagnostics: Compute which items are inside the active rolling history payload
+  const activeConversationalBuffer = useMemo(() => {
+    const EXPLICIT_HISTORY_TURN_LIMIT = 8;
+    // Filter down to match core telemetry pipeline conditions
+    const fluidConversationalHistory = messages.filter(
+      (m) => !m.isPinned && !m.isPruned,
+    );
+    // Slice the most recent 8 messages
+    return fluidConversationalHistory.slice(-EXPLICIT_HISTORY_TURN_LIMIT);
   }, [messages]);
 
   // Clean layout state tracking for empty chat sessions
@@ -58,6 +87,8 @@ export const ContextSidebar: React.FC = () => {
       </aside>
     );
   }
+
+  const isPinLimitReached = contextStats.pinnedCount >= 5;
 
   return (
     <aside className="w-72 bg-theme-panel/20 border-l border-theme-border/70 h-full overflow-hidden shrink-0 select-none transition-colors duration-200 hidden lg:flex lg:flex-col">
@@ -81,8 +112,8 @@ export const ContextSidebar: React.FC = () => {
                   : "text-theme-accent"
               }
             >
-              {contextStats.activeTokens} / {contextStats.contextWindowLimit}{" "}
-              Tkn ({contextStats.loadPercentage}%)
+              {contextStats.activeTokens} / {contextWindowLimit} Tkn (
+              {contextStats.loadPercentage}%)
             </span>
           </div>
           <div className="w-full h-1.5 bg-black/20 rounded-full overflow-hidden border border-white/5 shadow-inner">
@@ -97,10 +128,12 @@ export const ContextSidebar: React.FC = () => {
         <div className="grid grid-cols-2 gap-2 pt-1">
           <div className="bg-black/15 border border-theme-border/40 rounded-lg p-1.5 flex items-center justify-between text-[11px] font-mono">
             <span className="text-theme-muted flex items-center gap-1">
-              <Layers className="w-3 h-3" /> Core
+              <Layers className="w-3 h-3" /> Core Pins
             </span>
-            <span className="text-theme-text font-semibold">
-              {contextStats.pinnedCount}
+            <span
+              className={`font-semibold ${isPinLimitReached ? "text-amber-500" : "text-theme-text"}`}
+            >
+              {contextStats.pinnedCount}/5
             </span>
           </div>
           <div className="bg-black/15 border border-theme-border/40 rounded-lg p-1.5 flex items-center justify-between text-[11px] font-mono">
@@ -115,7 +148,6 @@ export const ContextSidebar: React.FC = () => {
       </div>
 
       {/* ================= ACTIVE NODE REGISTER FEED ================= */}
-      {/* Balanced with pr-4 padding optimization to keep items clear of scrollbar tracks */}
       <div className="flex-1 overflow-y-auto p-4 pr-4 space-y-2 max-h-full">
         <div className="text-[10px] font-bold text-theme-muted/80 uppercase tracking-widest pl-1 mb-2">
           Conversational Payload Map
@@ -125,23 +157,44 @@ export const ContextSidebar: React.FC = () => {
           const estimatedTokens = Math.ceil((msg.content || "").length / 4);
           const isUser = msg.role === "user";
 
+          // Evaluate if an unpinned/unpruned message has been pushed out of the 8-turn budget
+          const isAgedOut =
+            !msg.isPinned &&
+            !msg.isPruned &&
+            !activeConversationalBuffer.includes(msg);
+
+          // Determine structural pinning blocks based on context states
+          const canPinThisNode = msg.isPinned || !isPinLimitReached;
+
           return (
             <div
               key={index}
               className={`p-2.5 border rounded-xl flex flex-col gap-2 transition-all duration-200 ${
                 msg.isPruned
                   ? "bg-theme-panel/10 border-theme-border/30 opacity-40 line-through text-theme-muted/60"
-                  : msg.isPinned
-                    ? "bg-theme-panel border-theme-accent text-theme-text shadow-sm shadow-theme-accent/5"
-                    : "bg-theme-panel/40 border-theme-border/50 text-theme-text/90 hover:border-theme-border"
+                  : isAgedOut
+                    ? "bg-black/5 border-theme-border/20 opacity-30 text-theme-muted/50 saturate-50"
+                    : msg.isPinned
+                      ? "bg-theme-panel border-theme-accent text-theme-text shadow-sm shadow-theme-accent/5"
+                      : "bg-theme-panel/40 border-theme-border/50 text-theme-text/90 hover:border-theme-border"
               }`}
             >
               {/* Node Card Metadata Header */}
               <div className="flex justify-between items-center text-[10px] font-mono">
                 <span
-                  className={`font-bold ${isUser ? "text-theme-accent/80" : "text-theme-muted"}`}
+                  className={`font-bold ${
+                    msg.isPruned || isAgedOut
+                      ? "text-theme-muted"
+                      : isUser
+                        ? "text-theme-accent/80"
+                        : "text-theme-muted"
+                  }`}
                 >
-                  {isUser ? "USER_PROMPT" : "COMPUTED_REPLY"}
+                  {isAgedOut
+                    ? "AGED_OUT_BUFFER"
+                    : isUser
+                      ? "USER_PROMPT"
+                      : "COMPUTED_REPLY"}
                 </span>
                 <span className="text-theme-muted/70 bg-black/10 px-1.5 py-0.5 rounded-sm">
                   ~{estimatedTokens} Tkn
@@ -162,16 +215,23 @@ export const ContextSidebar: React.FC = () => {
                 {/* 📌 Pin Action Button */}
                 <button
                   type="button"
+                  disabled={!canPinThisNode}
                   onClick={() => toggleMessagePin(index)}
                   title={
                     msg.isPinned
                       ? "Unanchor from Core Context"
-                      : "Anchor to Permanent Context"
+                      : !canPinThisNode
+                        ? "Context Budget Full (Max 5 Unique Pins)"
+                        : isAgedOut
+                          ? "Rescue context back to Core Anchors"
+                          : "Anchor to Permanent Context"
                   }
-                  className={`p-1.5 rounded-md border transition-all cursor-pointer flex items-center justify-center active:scale-95 ${
+                  className={`p-1.5 rounded-md border transition-all flex items-center justify-center active:scale-95 ${
                     msg.isPinned
-                      ? "bg-theme-accent border-theme-accent text-theme-bg"
-                      : "bg-black/10 border-theme-border/40 text-theme-muted hover:text-theme-text hover:border-theme-border"
+                      ? "bg-theme-accent border-theme-accent text-theme-bg cursor-pointer"
+                      : !canPinThisNode
+                        ? "bg-black/5 border-theme-border/20 text-theme-muted/30 cursor-not-allowed pointer-events-none"
+                        : "bg-black/10 border-theme-border/40 text-theme-muted hover:text-theme-text hover:border-theme-border cursor-pointer"
                   }`}
                 >
                   <Pin className="w-3 h-3 stroke-[2.5]" />
