@@ -51,6 +51,10 @@ export const fillerBlacklist = [
   "just let me know",
   "let's dive",
   "lets dive",
+  "next steps",
+  "let's begin",
+  "let begin",
+  "any specific questions",
   "happy to explore",
   "gladly talk about",
   "do you want to know",
@@ -94,21 +98,32 @@ export const fillerBlacklist = [
 
 export const cleanTextRaw = (str: string): string => {
   return str
-    .replace(/[\*\-_`#]+/g, "")
-    .replace(/\s*\([^)]+\)\s*/g, " ")
+    .replace(/\s*\([^)]+\)\s*/g, " ") // Remove parentheses and contents
     .replace(
       /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{2000}-\u{32FF}]/gu,
       "",
-    )
-    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    ) // Remove Emojis
+    .replace(/[^a-zA-Z0-9\s]/g, " ") // Replaces punctuation (like hyphens) with spaces
+    .replace(/\s+/g, " ") // Collapse multiple spaces
     .trim();
 };
 
 const segmenter = new Intl.Segmenter("en", { granularity: "word" });
 
 export const extractMicroIntentAgnostic = (rawBlock: string): string => {
-  // 1. Isolate content
-  let topicSegment = rawBlock.includes(":") ? rawBlock.split(":")[0] : rawBlock;
+  // 1. Prioritize explicit formatting (Bold / Quotes) before falling back to colons
+  let topicSegment = rawBlock;
+  const boldMatch = rawBlock.match(/\*\*([^*]+)\*\*/);
+  const quoteMatch = rawBlock.match(/(?:["'])([^"']{3,})(?:["'])/);
+
+  if (boldMatch && boldMatch[1]) {
+    topicSegment = boldMatch[1];
+  } else if (quoteMatch && quoteMatch[1]) {
+    topicSegment = quoteMatch[1];
+  } else if (rawBlock.includes(":")) {
+    topicSegment = rawBlock.split(":")[0];
+  }
+
   let cleaned = cleanTextRaw(topicSegment);
 
   // 2. Tokenize and tag for filtering
@@ -116,11 +131,12 @@ export const extractMicroIntentAgnostic = (rawBlock: string): string => {
     .filter((s) => s.isWordLike)
     .map((s) => s.segment);
 
-  // 3. Keep ONLY words that aren't junk, keeping their order
-  // This preserves the "integrity" of the phrase
+  // 3. Filter junk using an expanded dictionary
   const cleanTokens = words.filter((w) => {
     const lower = w.toLowerCase();
-    const isStopWord = [
+
+    // Expanded stop words to catch pronouns, helper verbs, and question starters
+    const isStopWord = new Set([
       "the",
       "and",
       "of",
@@ -132,13 +148,59 @@ export const extractMicroIntentAgnostic = (rawBlock: string): string => {
       "their",
       "a",
       "an",
-    ].includes(lower);
+      "i",
+      "you",
+      "he",
+      "she",
+      "it",
+      "we",
+      "they",
+      "me",
+      "what",
+      "who",
+      "where",
+      "when",
+      "why",
+      "how",
+      "which",
+      "do",
+      "does",
+      "did",
+      "have",
+      "has",
+      "had",
+      "let",
+      "lets",
+      "are",
+      "am",
+      "was",
+      "were",
+      "be",
+      "been",
+      "being",
+      "can",
+      "could",
+      "shall",
+      "should",
+      "will",
+      "would",
+      "may",
+      "might",
+      "must",
+      "any",
+      "some",
+      "this",
+      "that",
+      "these",
+      "those",
+    ]).has(lower);
+
     return lower.length > 2 && !fillerBlacklist.includes(lower) && !isStopWord;
   });
 
   if (cleanTokens.length === 0) return "";
 
-  // 4. Check for Action Marker (Verb) at the start
+  // 4. Action Marker Check & Slicing
   const actionMarkers = [
     "refactor",
     "analyze",
@@ -150,13 +212,16 @@ export const extractMicroIntentAgnostic = (rawBlock: string): string => {
     "create",
     "optimize",
     "test",
+    "explore",
+    "identify",
+    "assess",
   ];
-  let resultTokens = [];
 
+  let resultTokens = [];
   if (actionMarkers.includes(cleanTokens[0].toLowerCase())) {
-    resultTokens = cleanTokens.slice(0, 3); // Action + 2 Nouns
+    resultTokens = cleanTokens.slice(0, 3); // Action + up to 2 nouns
   } else {
-    resultTokens = cleanTokens.slice(0, 2); // 2 Nouns (Pure Topic)
+    resultTokens = cleanTokens.slice(0, 3); // Up to 3 Nouns for concepts (e.g. "User Feedback Loop")
   }
 
   // 5. Final validation
