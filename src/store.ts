@@ -70,6 +70,7 @@ interface ChatState {
   loadSessionsFromStorage: () => Promise<void>;
   toggleMessagePin: (index: number) => Promise<void>;
   toggleMessagePrune: (index: number) => Promise<void>;
+  getContextWindowLimit: () => number;
 
   onUpdateUserMessage: (index: number, newContent: string) => Promise<void>;
   onRegenerateFromCheckpoint: (
@@ -193,6 +194,81 @@ const getInitialPersonas = (): SystemProfile[] => {
   }
 };
 
+// ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
+const compileTelemetryPayload = (
+  messages: ChatMessage[],
+  sessionId: string | null,
+  customPersonas: SystemProfile[],
+) => {
+  // 1. Core System Framework Baseline
+  const activePersona =
+    customPersonas.find((p) => p.id === sessionId) || DEFAULT_PERSONAS[0];
+  const systemContextFrame = [
+    { role: "system" as const, content: activePersona.prompt },
+  ];
+
+  // 2. Pinned Context De-duplication Logic
+  const pinnedMessages = messages.filter(
+    (msg) => msg.isPinned && !msg.isPruned,
+  );
+  const uniquePinnedMap = new Map<string, ChatMessage>();
+
+  pinnedMessages.forEach((msg) => {
+    // Generate a localized string footprint signature (first 50 chars normalized)
+    const fingerprint = msg.content
+      .slice(0, 50)
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .trim();
+    // Overwrite earlier matches to guarantee retention of freshest context versions
+    uniquePinnedMap.set(fingerprint, msg);
+  });
+
+  const MAX_ALLOWED_PINS = 5;
+  const compiledPinnedContext = Array.from(uniquePinnedMap.values())
+    .slice(-MAX_ALLOWED_PINS) // Keep only the 5 most recent unique pins
+    .map((msg) => ({
+      role: "system" as const,
+      content: `[STATIC ANCHOR CONTEXT - ORIGINAL ROLE: ${msg.role.toUpperCase()}]\n${msg.content}\n[END ANCHOR]`,
+    }));
+
+  // 3. Fluid Conversational Extraction with Token Budget Guardrails
+  const conversationalHistory = messages.filter(
+    (msg) => !msg.isPinned && !msg.isPruned,
+  );
+  const explicitHistoryTurnLimit = 8;
+  const MAX_CONVERSATIONAL_CHAR_LIMIT = 8000; // ~2000 tokens safe item bounding threshold
+
+  const compiledHistoryContext = conversationalHistory
+    .slice(-explicitHistoryTurnLimit)
+    .map(({ role, content }) => {
+      // Prevent giant trace logs or large copy-pastes from crashing local context budgets
+      if (content.length > MAX_CONVERSATIONAL_CHAR_LIMIT) {
+        const head = content.slice(0, 2500);
+        const tail = content.slice(-2500);
+        const managedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated to defend context budget execution limits ...]\n\n${tail}`;
+        return { role, content: managedContent };
+      }
+      return { role, content };
+    });
+
+  // 4. Dynamic Recency Behavioral Reminder Injections
+  // If our sliding conversation buffer is full, inject a reminder to maintain alignment
+  if (compiledHistoryContext.length >= explicitHistoryTurnLimit) {
+    compiledHistoryContext.splice(compiledHistoryContext.length - 1, 0, {
+      role: "system" as const,
+      content: `[RECALL SYSTEM INSTRUCTION: Ensure responses comply exactly with the operational boundaries, technical rules, and constraints established in the initial persona architecture.]`,
+    });
+  }
+
+  // 5. Build Unified Execution Payload Array
+  return [
+    ...systemContextFrame,
+    ...compiledPinnedContext,
+    ...compiledHistoryContext,
+  ];
+};
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
@@ -295,6 +371,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ availableModels: [], model: "" });
       await get().fetchModels();
     }
+  },
+
+  // Add a helper selector or compute it inside your store state
+  getContextWindowLimit: (): number => {
+    const { model, settings } = get();
+
+    // 1. Normalize the model string for foolproof matching
+    const modelKey = (model || "").toLowerCase();
+    const provider = (settings?.currentProvider || "").toLowerCase();
+
+    // 2. Premium Cloud Provider Overrides
+    if (provider === "gemini") {
+      if (modelKey.includes("pro")) return 2097152; // Gemini Pro supports 2M tokens
+      return 1048576; // Gemini Flash standard fallback (1M tokens)
+    }
+    if (provider === "openai") {
+      if (modelKey.includes("gpt-4o")) return 128000;
+      return 16384;
+    }
+
+    // 3. Explicit Context Window Token Overrides (Check these first!)
+    if (modelKey.includes("128k")) return 128000;
+    if (modelKey.includes("64k")) return 64000;
+    if (modelKey.includes("32k")) return 32768;
+    if (modelKey.includes("16k")) return 16384;
+    if (modelKey.includes("8k")) return 8192;
+
+    // 4. Fallback Base Architectures (Mapping parameter sizes to their default contexts)
+    if (modelKey.includes("phi3") || modelKey.includes("phi-3")) {
+      if (modelKey.includes("128k")) return 128000;
+      return 4096; // Standard Phi-3 mini baseline
+    }
+
+    // Llama 3 / 3.1 baselines
+    if (modelKey.includes("llama3") || modelKey.includes("llama-3")) {
+      return 8192; // Default Llama 3 native token window cap
+    }
+
+    // Small/Tiny SLMs (Gemma 2B, Qwen 1.5B, DeepSeek 1.5B, etc.)
+    if (
+      modelKey.includes("1.5b") ||
+      modelKey.includes("2b") ||
+      modelKey.includes("gemma") ||
+      modelKey.includes("qwen")
+    ) {
+      // Modern small models typically launch with 8k contexts natively now
+      return 8192;
+    }
+
+    // 5. Ultimate baseline fallback if no keywords are matched
+    return 4096;
   },
 
   addPersona: (persona) => {
@@ -442,29 +569,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!currentSessionId) return;
 
     const targetHistory = [...messages];
-    const targetMessage = targetHistory[index];
-    if (!targetMessage) return;
+    if (!targetHistory[index]) return;
 
-    const newPinState = !targetMessage.isPinned;
-    const updateIndices: number[] = [index];
+    const isAttemptingToPin = !targetHistory[index].isPinned;
 
-    if (
-      targetMessage.role === "user" &&
-      targetHistory[index + 1]?.role === "assistant"
-    ) {
-      updateIndices.push(index + 1);
-    } else if (
-      targetMessage.role === "assistant" &&
-      targetHistory[index - 1]?.role === "user"
-    ) {
-      updateIndices.push(index - 1);
+    if (isAttemptingToPin) {
+      // Count current unique active pins in this session
+      const activePins = targetHistory.filter(
+        (msg) => msg.isPinned && !msg.isPruned,
+      );
+      const uniquePinSignatures = new Set(
+        activePins.map((msg) =>
+          msg.content.slice(0, 50).toLowerCase().replace(/\s+/g, "").trim(),
+        ),
+      );
+
+      if (uniquePinSignatures.size >= 5) {
+        // You can substitute this with a custom toast component event trigger if your UI uses one
+        alert(
+          "Context Budget Limit: You can only pin up to 5 unique anchor contexts per session to prevent engine memory issues.",
+        );
+        return;
+      }
     }
 
-    updateIndices.forEach((i) => {
-      if (targetHistory[i]) {
-        targetHistory[i] = { ...targetHistory[i], isPinned: newPinState };
-      }
-    });
+    // Decoupled: Atomically toggle ONLY this specific message target
+    targetHistory[index] = {
+      ...targetHistory[index],
+      isPinned: isAttemptingToPin,
+    };
 
     set({ messages: targetHistory });
     const match = sessions.find((s) => s.id === currentSessionId);
@@ -484,29 +617,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!currentSessionId) return;
 
     const targetHistory = [...messages];
-    const targetMessage = targetHistory[index];
-    if (!targetMessage) return;
+    if (!targetHistory[index]) return;
 
-    const newPruneState = !targetMessage.isPruned;
-    const updateIndices: number[] = [index];
-
-    if (
-      targetMessage.role === "user" &&
-      targetHistory[index + 1]?.role === "assistant"
-    ) {
-      updateIndices.push(index + 1);
-    } else if (
-      targetMessage.role === "assistant" &&
-      targetHistory[index - 1]?.role === "user"
-    ) {
-      updateIndices.push(index - 1);
-    }
-
-    updateIndices.forEach((i) => {
-      if (targetHistory[i]) {
-        targetHistory[i] = { ...targetHistory[i], isPruned: newPruneState };
-      }
-    });
+    targetHistory[index] = {
+      ...targetHistory[index],
+      isPruned: !targetHistory[index].isPruned,
+    };
 
     set({ messages: targetHistory });
     const match = sessions.find((s) => s.id === currentSessionId);
@@ -522,7 +638,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const { model, messages, isLoading, currentSessionId, settings } = get();
+    const {
+      model,
+      messages,
+      isLoading,
+      currentSessionId,
+      settings,
+      customPersonas,
+    } = get();
     if (!model || isLoading || !content.trim()) return;
 
     const provider = settings.currentProvider;
@@ -597,9 +720,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
           : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
 
-      const compiledActiveContext = updatedMessagesWithUser
-        .filter((msg) => !msg.isPruned)
-        .map(({ role, content }) => ({ role, content }));
+      // Centralized Telemetry Assembly Channel Execution
+      const compiledActiveContext = compileTelemetryPayload(
+        updatedMessagesWithUser,
+        sessionId,
+        customPersonas,
+      );
 
       const standardPayload = {
         model,
@@ -658,6 +784,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   ...currentHistory[currentHistory.length - 1],
                   content: assistantTextAccumulator,
                   timestamp: Date.now(),
+                  isPinned: false,
+                  isPruned: false,
                 };
               }
               return { messages: currentHistory };
@@ -709,7 +837,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       presencePenalty: number;
     },
   ) => {
-    const { model, messages, isLoading, currentSessionId, settings } = get();
+    const {
+      model,
+      messages,
+      isLoading,
+      currentSessionId,
+      settings,
+      customPersonas,
+    } = get();
     if (!model || isLoading || !currentSessionId) return;
 
     const provider = settings.currentProvider;
@@ -721,11 +856,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Truncate the thread history right after the user's setup prompt
     const controller = new AbortController();
     const cleanHistory = messages.slice(0, targetUserIdx + 1);
-    const compiledActiveContext = cleanHistory
-      .filter((msg) => !msg.isPruned)
-      .map(({ role, content }) => ({ role, content }));
 
-    // Append an empty placeholder assistant message frame for streaming
+    // Centralized Telemetry Assembly Channel Execution for checkpoint regeneration
+    const compiledActiveContext = compileTelemetryPayload(
+      cleanHistory,
+      currentSessionId,
+      customPersonas,
+    );
+
     const streamingHistory: ChatMessage[] = [
       ...cleanHistory,
       {
