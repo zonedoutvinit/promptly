@@ -1,7 +1,7 @@
 {
   "name": "promptly",
   "version": "1.0.0",
-  "description": "A cross-platform AI-powered terminal interface designed for seamless integration with both local and cloud-based Large Language Models (LLMs).",
+  "description": "A cross-platform desktop utility offering a unified multi-model interface for seamless interaction and comparison across local and cloud-based Large Language Models (LLMs).",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -20,7 +20,6 @@
   "keywords": [
     "ai",
     "llm",
-    "terminal",
     "electron",
     "productivity",
     "developer-tools"
