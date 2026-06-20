@@ -1,6 +1,6 @@
 {
   "name": "promptly",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A cross-platform desktop utility offering a unified multi-model interface for seamless interaction and comparison across local and cloud-based Large Language Models (LLMs).",
   "main": "main.js",
   "repository": {
@@ -83,6 +83,30 @@
       ],
       "category": "Utility",
       "icon": "public/icon.png"
+    },
+    "deb": {
+      "publish": {
+        "provider": "github",
+        "owner": "zonedoutvinit",
+        "repo": "promptly",
+        "channel": "deb"
+      }
+    },
+    "rpm": {
+      "publish": {
+        "provider": "github",
+        "owner": "zonedoutvinit",
+        "repo": "promptly",
+        "channel": "rpm"
+      }
+    },
+    "pacman": {
+      "publish": {
+        "provider": "github",
+        "owner": "zonedoutvinit",
+        "repo": "promptly",
+        "channel": "pacman"
+      }
     },
     "publish": {
       "provider": "github",

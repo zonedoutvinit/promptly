@@ -90,6 +90,16 @@ export const MessageForm: React.FC<MessageFormProps> = ({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, [input]);
 
+  // Force focus back to the input if the chat is cleared or deleted
+  useEffect(() => {
+    if (messages.length === 0 && textareaRef.current) {
+      // A microtask timeout ensures the DOM has finished updating/rendering
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+    }
+  }, [messages.length]); // Triggers when messages are cleared
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -100,7 +110,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   };
 
   return (
-    <div className="space-y-3 w-full bg-theme-bg select-none">
+    <div className="space-y-3 w-full bg-theme-bg">
       {/* System Personas Tray Dock: Displays only when conversation history is fresh */}
       {messages.length === 0 && (
         <div className="flex flex-col space-y-1">
