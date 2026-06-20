@@ -8,6 +8,7 @@ import { ChatWindow } from "./components/ChatWindow";
 import { PromptOptions } from "./components/PromptOptions";
 import { MessageForm } from "./components/MessageForm";
 import { ContextSidebar } from "./components/ContextSidebar";
+import { EmptyStateCanvas } from "./components/EmptyStateCanvas";
 import { WelcomeModal } from "./components/WelcomeModal";
 
 export default function App() {
@@ -26,8 +27,8 @@ export default function App() {
     selectSession,
     deleteSession,
     loadSessionsFromStorage,
-    onUpdateUserMessage, // ✨ Hook up edit
-    onRegenerateFromCheckpoint, // ✨ Hook up tuning
+    onUpdateUserMessage,
+    onRegenerateFromCheckpoint,
   } = useChatStore();
 
   const [input, setInput] = useState("");
@@ -66,7 +67,7 @@ export default function App() {
   const showOptions =
     hasMessages && !isLoading && lastMessage?.role === "assistant";
 
-  const isProcessingSuggestions = isLoading && messages.length > 0; // The "Typing Indicator" state
+  const isProcessingSuggestions = isLoading && messages.length > 0;
 
   const dynamicSuggestedPrompts = useMemo(() => {
     if (!showOptions || !lastMessage) return [];
@@ -89,6 +90,32 @@ export default function App() {
     sendMessage(textToSend);
     setInput("");
   };
+
+  /* Shared rendering block for footer contents to prevent structural code duplication */
+  const renderFooterContents = () => (
+    <>
+      {isProcessingSuggestions ? (
+        <div className="flex items-center gap-2 animate-pulse px-4 py-2 text-xs text-theme-muted">
+          <div className="w-1.5 h-1.5 rounded-full bg-theme-accent" />
+          Analyzing path...
+        </div>
+      ) : showOptions ? (
+        <PromptOptions
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          dynamicSuggestedPrompts={dynamicSuggestedPrompts}
+          onSubmit={(text) => handleSubmit(undefined, text)}
+        />
+      ) : null}
+
+      <MessageForm
+        input={input}
+        setInput={setInput}
+        isLoading={isLoading}
+        onSubmit={(e) => handleSubmit(e)}
+      />
+    </>
+  );
 
   const handleOnboardingComplete = () => {
     setShowWelcome(false);
@@ -132,42 +159,35 @@ export default function App() {
           onModelChange={setModel}
         />
 
-        {/* 🌟 CHAT STREAM + TELEMETRY HORIZONTAL ROW SEGREGATOR */}
+        {/* CHAT STREAM + TELEMETRY HORIZONTAL ROW SEGREGATOR */}
         <div className="flex-1 flex flex-row overflow-hidden w-full relative">
-          {/* PRIMARY WORKSPACE: Main Message Stream & Input Dock */}
-          <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
-            <ChatWindow
-              messages={messages}
-              isLoading={isLoading}
-              hasMessages={hasMessages}
-              messagesEndRef={messagesEndRef}
-              onUpdateUserMessage={onUpdateUserMessage} // ✨ Connected
-              onRegenerateFromCheckpoint={onRegenerateFromCheckpoint} // ✨ Connected
-            />
-
-            <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg">
-              {isProcessingSuggestions ? (
-                <div className="flex items-center gap-2 animate-pulse px-4 py-2 text-xs text-theme-muted">
-                  <div className="w-1.5 h-1.5 rounded-full bg-theme-accent" />
-                  Analyzing path...
+          {!hasMessages ? (
+            /* ================= EMPTY STATE CENTER HOIST ================= */
+            <div className="flex-1 flex flex-col items-center justify-center p-6 min-w-0 overflow-y-auto">
+              {/* This tight flex container locks both the canvas and form into a centralized cluster */}
+              <div className="max-w-3xl w-full flex flex-col items-center justify-center space-y-8 animate-in fade-in zoom-in-95 duration-300">
+                <EmptyStateCanvas />
+                <div className="w-full bg-theme-bg">
+                  {renderFooterContents()}
                 </div>
-              ) : showOptions ? (
-                <PromptOptions
-                  activeTab={activeTab}
-                  setActiveTab={setActiveTab}
-                  dynamicSuggestedPrompts={dynamicSuggestedPrompts}
-                  onSubmit={(text) => handleSubmit(undefined, text)}
-                />
-              ) : null}
-
-              <MessageForm
-                input={input}
-                setInput={setInput}
+              </div>
+            </div>
+          ) : (
+            /* ================= ACTIVE CHAT MODE WORKSPACE ================= */
+            <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 animate-in fade-in duration-200">
+              <ChatWindow
+                messages={messages}
                 isLoading={isLoading}
-                onSubmit={(e) => handleSubmit(e)}
+                messagesEndRef={messagesEndRef}
+                onUpdateUserMessage={onUpdateUserMessage}
+                onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
               />
-            </footer>
-          </div>
+
+              <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg animate-in slide-in-from-bottom-4 duration-300">
+                {renderFooterContents()}
+              </footer>
+            </div>
+          )}
 
           {/* 📌 RIGHT RAIL: Advanced Telemetry & Selective Memory Context Maps */}
           <ContextSidebar />
