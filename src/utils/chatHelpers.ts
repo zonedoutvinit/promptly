@@ -110,6 +110,116 @@ export const cleanTextRaw = (str: string): string => {
 
 const segmenter = new Intl.Segmenter("en", { granularity: "word" });
 
+/**
+ * Validates whether a generated suggested prompt sounds natural and structural.
+ * Blocks fragments that lack conceptual or action value.
+ */
+const isValidSuggestion = (suggestion: string): boolean => {
+  const lower = suggestion.toLowerCase();
+  const words = lower.split(/\s+/);
+
+  // 1. Block isolated structural grammar adjectives/determiners without context
+  const bannedSingletons = new Set([
+    "another",
+    "other",
+    "next",
+    "previous",
+    "more",
+    "fewer",
+    "less",
+    "highly",
+    "very",
+    "really",
+    "mostly",
+    "partially",
+    "completely",
+  ]);
+  if (words.some((w) => bannedSingletons.has(w) && words.length === 2)) {
+    return false;
+  }
+
+  // 2. Block bad semantic combinations or dangling conversational leftover fragments
+  const invalidPhrases = [
+    "here are",
+    "there are",
+    "click here",
+    "read more",
+    "see below",
+    "following points",
+    "main items",
+    "various aspects",
+    "different ways",
+  ];
+  if (invalidPhrases.some((phrase) => lower.includes(phrase))) {
+    return false;
+  }
+
+  // 3. Simple grammatical sanity check: Avoid choices that are just two particles/prepositions
+  const structuralTriggers = new Set([
+    "about",
+    "above",
+    "across",
+    "after",
+    "against",
+    "along",
+    "among",
+    "around",
+    "at",
+    "before",
+    "behind",
+    "below",
+    "beneath",
+    "beside",
+    "between",
+    "beyond",
+    "but",
+    "by",
+    "concerning",
+    "considering",
+    "despite",
+    "down",
+    "during",
+    "except",
+    "for",
+    "from",
+    "in",
+    "inside",
+    "into",
+    "like",
+    "near",
+    "of",
+    "off",
+    "on",
+    "onto",
+    "out",
+    "outside",
+    "over",
+    "past",
+    "regarding",
+    "since",
+    "through",
+    "throughout",
+    "till",
+    "to",
+    "toward",
+    "under",
+    "underneath",
+    "until",
+    "up",
+    "upon",
+    "with",
+    "within",
+    "without",
+  ]);
+
+  const structureCount = words.filter((w) => structuralTriggers.has(w)).length;
+  if (structureCount >= words.length - 1) {
+    return false; // Suggestion is mostly connector words without meat
+  }
+
+  return true;
+};
+
 export const extractMicroIntentAgnostic = (rawBlock: string): string => {
   // 1. Prioritize explicit formatting (Bold / Quotes) before falling back to colons
   let topicSegment = rawBlock;
@@ -255,6 +365,9 @@ export const getModelSuggestedPrompts = (
 
     const ultraShortIntent = extractMicroIntentAgnostic(line);
     if (!ultraShortIntent) continue;
+
+    // --- FINAL SOUNDNESS CHECKERS ---
+    if (!isValidSuggestion(ultraShortIntent)) continue;
 
     const finalWordCount = ultraShortIntent.split(/\s+/).length;
     if (
