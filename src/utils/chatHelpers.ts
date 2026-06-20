@@ -51,6 +51,10 @@ export const fillerBlacklist = [
   "just let me know",
   "let's dive",
   "lets dive",
+  "next steps",
+  "let's begin",
+  "let begin",
+  "any specific questions",
   "happy to explore",
   "gladly talk about",
   "do you want to know",
@@ -92,59 +96,140 @@ export const fillerBlacklist = [
   "for example:",
 ];
 
-export const cleanMarkdownText = (str: string): string => {
+export const cleanTextRaw = (str: string): string => {
   return str
-    .replace(/[\*\-_]+/g, "")
-    .replace(/^[^a-zA-Z0-9\s]+/, "")
-    .replace(/:\s*$/, "")
+    .replace(/\s*\([^)]+\)\s*/g, " ") // Remove parentheses and contents
+    .replace(
+      /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{2000}-\u{32FF}]/gu,
+      "",
+    ) // Remove Emojis
+    .replace(/[^a-zA-Z0-9\s]/g, " ") // Replaces punctuation (like hyphens) with spaces
+    .replace(/\s+/g, " ") // Collapse multiple spaces
     .trim();
 };
 
-export const isValidPrompt = (str: string): boolean => {
-  const lower = str.toLowerCase().trim();
+const segmenter = new Intl.Segmenter("en", { granularity: "word" });
 
-  // 1. Core Conversational Greeting Filter (Global Guard)
-  // If a string behaves like a system greeting or user-facing welcome dialogue, drop it!
-  if (
-    lower.startsWith("hello") ||
-    lower.startsWith("hi ") ||
-    lower.startsWith("hey") ||
-    lower.startsWith("welcome") ||
-    lower.startsWith("how can i") ||
-    lower.includes("help you today") ||
-    lower.includes("how can i help")
-  ) {
-    return false;
+export const extractMicroIntentAgnostic = (rawBlock: string): string => {
+  // 1. Prioritize explicit formatting (Bold / Quotes) before falling back to colons
+  let topicSegment = rawBlock;
+  const boldMatch = rawBlock.match(/\*\*([^*]+)\*\*/);
+  const quoteMatch = rawBlock.match(/(?:["'])([^"']{3,})(?:["'])/);
+
+  if (boldMatch && boldMatch[1]) {
+    topicSegment = boldMatch[1];
+  } else if (quoteMatch && quoteMatch[1]) {
+    topicSegment = quoteMatch[1];
+  } else if (rawBlock.includes(":")) {
+    topicSegment = rawBlock.split(":")[0];
   }
 
-  // 2. Strict Substring Match
-  const isStrictFiller = fillerBlacklist.some((filler) =>
-    lower.includes(filler),
-  );
-  if (isStrictFiller) return false;
+  let cleaned = cleanTextRaw(topicSegment);
 
-  // 3. Structural Length Guard
-  if (lower.length < 5) return false;
+  // 2. Tokenize and tag for filtering
+  const words = Array.from(segmenter.segment(cleaned))
+    .filter((s) => s.isWordLike)
+    .map((s) => s.segment);
 
-  // 4. Prevent structural fragments that are too short in terms of words
-  const words = lower.split(/\s+/);
-  if (
-    words.length === 1 &&
-    !["programming", "coding", "software", "hardware"].includes(words[0])
-  ) {
-    return false;
+  // 3. Filter junk using an expanded dictionary
+  const cleanTokens = words.filter((w) => {
+    const lower = w.toLowerCase();
+
+    // Expanded stop words to catch pronouns, helper verbs, and question starters
+    const isStopWord = new Set([
+      "the",
+      "and",
+      "of",
+      "in",
+      "to",
+      "for",
+      "is",
+      "your",
+      "their",
+      "a",
+      "an",
+      "i",
+      "you",
+      "he",
+      "she",
+      "it",
+      "we",
+      "they",
+      "me",
+      "what",
+      "who",
+      "where",
+      "when",
+      "why",
+      "how",
+      "which",
+      "do",
+      "does",
+      "did",
+      "have",
+      "has",
+      "had",
+      "let",
+      "lets",
+      "are",
+      "am",
+      "was",
+      "were",
+      "be",
+      "been",
+      "being",
+      "can",
+      "could",
+      "shall",
+      "should",
+      "will",
+      "would",
+      "may",
+      "might",
+      "must",
+      "any",
+      "some",
+      "this",
+      "that",
+      "these",
+      "those",
+    ]).has(lower);
+
+    return lower.length > 2 && !fillerBlacklist.includes(lower) && !isStopWord;
+  });
+
+  if (cleanTokens.length === 0) return "";
+
+  // 4. Action Marker Check & Slicing
+  const actionMarkers = [
+    "refactor",
+    "analyze",
+    "explain",
+    "compare",
+    "debug",
+    "summarize",
+    "build",
+    "create",
+    "optimize",
+    "test",
+    "explore",
+    "identify",
+    "assess",
+  ];
+
+  let resultTokens = [];
+  if (actionMarkers.includes(cleanTokens[0].toLowerCase())) {
+    resultTokens = cleanTokens.slice(0, 3); // Action + up to 2 nouns
+  } else {
+    resultTokens = cleanTokens.slice(0, 3); // Up to 3 Nouns for concepts (e.g. "User Feedback Loop")
   }
 
-  // 5. Sentence Structure Guard
-  if (
-    lower.startsWith("why do you") ||
-    lower.startsWith("how do you") ||
-    lower.startsWith("do you need")
-  ) {
-    return false;
-  }
+  // 5. Final validation
+  if (resultTokens.length === 0) return "";
 
-  return true;
+  return resultTokens
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 };
 
 export const getModelSuggestedPrompts = (
@@ -152,100 +237,48 @@ export const getModelSuggestedPrompts = (
 ): string[] => {
   if (!lastMessage || !lastMessage.content) return [];
 
-  const text = lastMessage.content;
   const suggestions: string[] = [];
 
-  const isInvitation =
-    text.includes("?") ||
-    text.includes(":") ||
-    text.toLowerCase().includes("interested in") ||
-    text.toLowerCase().includes("mood for") ||
-    text.toLowerCase().includes("here are");
+  const lines = lastMessage.content
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .reverse();
 
-  if (isInvitation) {
-    // CRITICAL FLIP: Split and reverse to prioritize closing remarks and questions
-    const lines = text.split("\n").reverse();
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
 
-    for (const line of lines) {
-      let trimmedLine = line.trim();
-      if (!trimmedLine) continue;
+    const hitsBlacklist = fillerBlacklist.some((filler) =>
+      lowerLine.includes(filler),
+    );
+    if (hitsBlacklist) continue;
 
-      // 1. Detect structural splits using either Colons OR Question Marks
-      const delimiter = trimmedLine.includes(":")
-        ? ":"
-        : trimmedLine.includes("?")
-          ? "?"
-          : null;
+    const ultraShortIntent = extractMicroIntentAgnostic(line);
+    if (!ultraShortIntent) continue;
 
-      if (delimiter) {
-        const parts = trimmedLine.split(delimiter);
-        const rawHeader = parts[0].trim();
-        const cleanHeader = cleanMarkdownText(rawHeader);
+    const finalWordCount = ultraShortIntent.split(/\s+/).length;
+    if (
+      finalWordCount >= 2 &&
+      finalWordCount <= 3 &&
+      ultraShortIntent.length <= 30
+    ) {
+      // Prevent redundancy leaks between parent headers and nested choices
+      const isRedundantHeader = suggestions.some((existingChip) => {
+        const existingSubject = existingChip.split(" ").slice(1).join(" ");
+        const currentSubject = ultraShortIntent.split(" ").slice(1).join(" ");
+        return (
+          currentSubject.length > 3 && existingSubject.includes(currentSubject)
+        );
+      });
 
-        if (
-          cleanHeader.length >= 2 &&
-          cleanHeader.length < 60 &&
-          isValidPrompt(cleanHeader)
-        ) {
-          const finalPrompt = cleanHeader.endsWith("?")
-            ? cleanHeader
-            : `${cleanHeader}?`;
+      if (isRedundantHeader) continue;
 
-          if (!suggestions.includes(finalPrompt)) {
-            suggestions.push(finalPrompt);
-            if (suggestions.length >= 5) break; // Early exit cap
-            continue;
-          }
-        }
-      }
-
-      // 2. Fallback Strategy: Handle raw list items or bullet lines without clear delimiters
-      if (/^[\s\-\*•\d\.\)]+/.test(trimmedLine)) {
-        const cleanLine = cleanMarkdownText(trimmedLine);
-        if (
-          isValidPrompt(cleanLine) &&
-          cleanLine.length > 4 &&
-          cleanLine.length < 75
-        ) {
-          const formattedPrompt = cleanLine.endsWith("?")
-            ? cleanLine
-            : `${cleanLine}?`;
-
-          if (!suggestions.includes(formattedPrompt)) {
-            suggestions.push(formattedPrompt);
-            if (suggestions.length >= 5) break; // Early exit cap
-          }
-        }
+      if (!suggestions.includes(ultraShortIntent)) {
+        suggestions.push(ultraShortIntent);
+        if (suggestions.length >= 5) break;
       }
     }
   }
 
-  // 3. Quote Fallback Pass (Runs only if bottom-up structural lines found nothing)
-  if (suggestions.length === 0) {
-    const quoteRegex = /"([^"\n]{6,65})"/g;
-    let quoteMatch;
-    const foundQuotes: string[] = [];
-
-    while ((quoteMatch = quoteRegex.exec(text)) !== null) {
-      foundQuotes.push(quoteMatch[1]);
-    }
-
-    // Reverse quotes to read from bottom up
-    for (const rawQuote of foundQuotes.reverse()) {
-      const cleanQuote = cleanMarkdownText(rawQuote);
-      if (isValidPrompt(cleanQuote)) {
-        const formattedQuote = cleanQuote.endsWith("?")
-          ? cleanQuote
-          : `${cleanQuote}?`;
-
-        if (!suggestions.includes(formattedQuote)) {
-          suggestions.push(formattedQuote);
-          if (suggestions.length >= 5) break;
-        }
-      }
-    }
-  }
-
-  // No need to slice at the end since we cap it actively during insertion
-  return suggestions;
+  return suggestions.reverse();
 };
