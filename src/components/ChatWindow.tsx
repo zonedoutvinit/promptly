@@ -1,14 +1,13 @@
 // src/components/ChatWindow.tsx
-import React, { useState, useRef, useEffect } from "react";
 import {
-  Zap,
+  Check,
+  HelpCircle,
   Pencil,
   Settings,
-  Check,
-  X,
   SlidersHorizontal,
-  HelpCircle,
+  X,
 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface Message {
@@ -25,7 +24,6 @@ interface Message {
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
-  hasMessages: boolean;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   onUpdateUserMessage?: (index: number, newContent: string) => void;
   onRegenerateFromCheckpoint?: (
@@ -42,7 +40,6 @@ interface ChatWindowProps {
 export const ChatWindow: React.FC<ChatWindowProps> = ({
   messages,
   isLoading,
-  hasMessages,
   messagesEndRef,
   onUpdateUserMessage,
   onRegenerateFromCheckpoint,
@@ -50,41 +47,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   return (
     <main className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-200">
       <div className="max-w-3xl w-full mx-auto space-y-6 flex flex-col">
-        {!hasMessages ? (
-          /* ================= EMPTY STATE CANVAS ================= */
-          <div className="flex h-[70vh] flex-col items-center justify-center text-theme-muted space-y-3 text-center select-none">
-            <div className="h-12 w-12 rounded-2xl bg-theme-panel border border-theme-border flex items-center justify-center text-theme-accent font-bold text-lg shadow-sm">
-              <Zap className="w-4 h-4 fill-theme-accent/10 stroke-[2.5]" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-theme-text">
-                Promptly is offline-ready.
-              </p>
-              <p className="text-xs text-theme-muted max-w-xs mt-1">
-                Select an active model from your system configuration menu above
-                to begin a session.
-              </p>
-            </div>
-          </div>
-        ) : (
-          /* ================= VIRTUALIZED CONVERSATION PIPELINE ================= */
-          messages.map((msg, idx) => (
-            <ObservedMessageItem
-              key={idx}
-              msg={msg}
-              idx={idx}
-              isLoading={isLoading}
-              onUpdateUserMessage={onUpdateUserMessage}
-              onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
-            />
-          ))
-        )}
+        {/* VIRTUALIZED CONVERSATION PIPELINE */}
+        {messages.map((msg, idx) => (
+          <ObservedMessageItem
+            key={idx}
+            msg={msg}
+            idx={idx}
+            isLoading={isLoading}
+            onUpdateUserMessage={onUpdateUserMessage}
+            onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
+          />
+        ))}
         <div ref={messagesEndRef} />
       </div>
     </main>
   );
 };
-
 /* ================= SELF-CONTAINED OBSERVER NODE ================= */
 interface ObservedItemProps {
   msg: Message;
@@ -293,7 +271,7 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                 </span>
               </span>
 
-              {/* REPETITION FILTER TAG (Hidden on 0 / undefined) */}
+              {/* REPETITION FILTER TAG */}
               {msg.frequencyPenalty !== undefined &&
                 msg.frequencyPenalty !== 0 && (
                   <span className="text-[9px] font-medium bg-theme-panel/80 px-2 py-0.5 rounded-md border border-theme-border/40 text-theme-muted transition-colors">
@@ -304,7 +282,7 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                   </span>
                 )}
 
-              {/* TOPIC VARIATION TAG (Hidden on 0 / undefined) */}
+              {/* TOPIC VARIATION TAG */}
               {msg.presencePenalty !== undefined &&
                 msg.presencePenalty !== 0 && (
                   <span className="text-[9px] font-medium bg-theme-panel/80 px-2 py-0.5 rounded-md border border-theme-border/40 text-theme-muted transition-colors">
@@ -350,9 +328,7 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                 {isTuning && (
                   <div
                     ref={popoverRef}
-                    className={`absolute right-0 z-50 w-72 bg-theme-panel border border-theme-border rounded-xl shadow-xl p-4 space-y-4 text-theme-text cursor-default text-left animate-in fade-in slide-in-from-top-1 duration-150 ${
-                      idx === 0 ? "top-7 origin-top" : "bottom-7 origin-bottom"
-                    }`}
+                    className="absolute right-0 z-50 w-72 bg-theme-panel border border-theme-border rounded-xl shadow-xl p-4 space-y-4 text-theme-text cursor-default text-left animate-in fade-in slide-in-from-top-1 duration-150 top-7 origin-top"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-theme-muted uppercase tracking-wider border-b border-theme-border/40 pb-1.5">
@@ -361,14 +337,14 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                     </div>
 
                     <div className="space-y-3.5">
-                      {/* TEMPERATURE -> CREATIVITY */}
+                      {/* TEMPERATURE */}
                       <div className="space-y-1">
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Creativity
                             <span
                               className="cursor-help text-theme-muted"
-                              title="Higher values make the response more imaginative and random. Lower values keep it factual and focused."
+                              title="Higher values make the response more imaginative and random."
                             >
                               <HelpCircle className="w-3 h-3" />
                             </span>
@@ -391,18 +367,18 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                           onChange={(e) =>
                             setLocalTemp(parseFloat(e.target.value))
                           }
-                          className="w-full accent-theme-accent h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent hover:[&::-webkit-slider-thumb]:bg-theme-accent-hover [&::-webkit-slider-thumb]:transition-colors [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent hover:[&::-moz-range-thumb]:bg-theme-accent-hover [&::-moz-range-thumb]:transition-colors"
+                          className="w-full h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none accent-theme-accent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent [&::-moz-range-thumb]:border-0"
                         />
                       </div>
 
-                      {/* TOP-P -> VOCABULARY DIVERSITY */}
+                      {/* TOP-P */}
                       <div className="space-y-1">
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Word Pool
                             <span
                               className="cursor-help text-theme-muted"
-                              title="Limits the AI to choosing words from a narrower pool of likely words. Lower numbers make it highly predictable."
+                              title="Limits the AI to choosing words from a narrower pool."
                             >
                               <HelpCircle className="w-3 h-3" />
                             </span>
@@ -425,21 +401,15 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                           onChange={(e) =>
                             setLocalTopP(parseFloat(e.target.value))
                           }
-                          className="w-full accent-theme-accent h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent hover:[&::-webkit-slider-thumb]:bg-theme-accent-hover [&::-webkit-slider-thumb]:transition-colors [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent hover:[&::-moz-range-thumb]:bg-theme-accent-hover [&::-moz-range-thumb]:transition-colors"
+                          className="w-full h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none accent-theme-accent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent [&::-moz-range-thumb]:border-0"
                         />
                       </div>
 
-                      {/* FREQUENCY PENALTY -> WORD REPETITION */}
+                      {/* FREQUENCY PENALTY */}
                       <div className="space-y-1">
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Repetition Filter
-                            <span
-                              className="cursor-help text-theme-muted"
-                              title="Penalizes the AI for repeating the exact same words or phrases too often. Turns down loops."
-                            >
-                              <HelpCircle className="w-3 h-3" />
-                            </span>
                           </span>
                           <span className="text-theme-accent font-mono font-semibold bg-theme-bg px-1.5 py-0.5 rounded text-[11px]">
                             {localFreqPenalty === 0
@@ -459,21 +429,15 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                           onChange={(e) =>
                             setLocalFreqPenalty(parseFloat(e.target.value))
                           }
-                          className="w-full accent-theme-accent h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent hover:[&::-webkit-slider-thumb]:bg-theme-accent-hover [&::-webkit-slider-thumb]:transition-colors [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent hover:[&::-moz-range-thumb]:bg-theme-accent-hover [&::-moz-range-thumb]:transition-colors"
+                          className="w-full h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none accent-theme-accent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent [&::-moz-range-thumb]:border-0"
                         />
                       </div>
 
-                      {/* PRESENCE PENALTY -> TOPIC DRIFT */}
+                      {/* PRESENCE PENALTY */}
                       <div className="space-y-1">
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Topic Variation
-                            <span
-                              className="cursor-help text-theme-muted"
-                              title="Encourages the AI to introduce completely fresh subjects and branch out instead of dwelling on the same theme."
-                            >
-                              <HelpCircle className="w-3 h-3" />
-                            </span>
                           </span>
                           <span className="text-theme-accent font-mono font-semibold bg-theme-bg px-1.5 py-0.5 rounded text-[11px]">
                             {localPresPenalty === 0
@@ -493,7 +457,7 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                           onChange={(e) =>
                             setLocalPresPenalty(parseFloat(e.target.value))
                           }
-                          className="w-full accent-theme-accent h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent hover:[&::-webkit-slider-thumb]:bg-theme-accent-hover [&::-webkit-slider-thumb]:transition-colors [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent hover:[&::-moz-range-thumb]:bg-theme-accent-hover [&::-moz-range-thumb]:transition-colors"
+                          className="w-full h-1 bg-theme-bg rounded-lg cursor-pointer appearance-none accent-theme-accent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-theme-accent [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-theme-accent [&::-moz-range-thumb]:border-0"
                         />
                       </div>
                     </div>
