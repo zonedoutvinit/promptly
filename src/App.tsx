@@ -9,6 +9,7 @@ import { PromptOptions } from "./components/PromptOptions";
 import { MessageForm } from "./components/MessageForm";
 import { ContextSidebar } from "./components/ContextSidebar";
 import { EmptyStateCanvas } from "./components/EmptyStateCanvas";
+import { WelcomeModal } from "./components/WelcomeModal";
 
 export default function App() {
   // Extract functions from state hooks layout container
@@ -33,12 +34,29 @@ export default function App() {
   const [input, setInput] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<"dynamic" | "generic">("dynamic");
+  const [showWelcome, setShowWelcome] = useState<boolean | null>(null); // Initial null avoids UI blinking
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 1. Isolation check for Onboarding Parameters
   useEffect(() => {
-    fetchModels();
-    loadSessionsFromStorage();
-  }, [fetchModels, loadSessionsFromStorage]);
+    const hasCompletedOnboarding = localStorage.getItem(
+      "promptly_onboarding_done",
+    );
+    if (!hasCompletedOnboarding) {
+      setShowWelcome(true);
+    } else {
+      setShowWelcome(false);
+    }
+  }, []);
+
+  // 2. Hydrate workspace store targets ONLY when onboarding is clear
+  useEffect(() => {
+    if (showWelcome === false) {
+      fetchModels();
+      loadSessionsFromStorage();
+    }
+  }, [fetchModels, loadSessionsFromStorage, showWelcome]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -99,6 +117,24 @@ export default function App() {
     </>
   );
 
+  const handleOnboardingComplete = () => {
+    setShowWelcome(false);
+  };
+
+  // Prevent background layout mounting while checking or during onboarding workflow
+  if (showWelcome === null) {
+    return <div className="h-screen w-screen bg-theme-bg" />;
+  }
+
+  if (showWelcome === true) {
+    return (
+      <div className="h-screen w-screen bg-theme-bg flex items-center justify-center relative">
+        <WelcomeModal onComplete={handleOnboardingComplete} />
+      </div>
+    );
+  }
+
+  // Primary operational terminal workspace layout
   return (
     <div className="flex h-screen w-screen bg-theme-bg text-theme-text overflow-hidden transition-colors duration-200">
       {/* LEFT RAIL: Sessions Navigation History */}
