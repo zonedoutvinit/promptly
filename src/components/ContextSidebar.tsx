@@ -1,7 +1,14 @@
 // src/components/ContextSidebar.tsx
 import React, { useMemo } from "react";
 import { useChatStore } from "../store";
-import { Pin, Scissors, Activity, Layers, HelpCircle } from "lucide-react";
+import {
+  Pin,
+  Scissors,
+  Activity,
+  Layers,
+  HelpCircle,
+  History,
+} from "lucide-react";
 
 export const ContextSidebar: React.FC = () => {
   const {
@@ -72,18 +79,76 @@ export const ContextSidebar: React.FC = () => {
     return fluidConversationalHistory.slice(-EXPLICIT_HISTORY_TURN_LIMIT);
   }, [messages]);
 
-  // Clean layout state tracking for empty chat sessions
+  // Clean layout state tracking for empty chat sessions (Enhanced with feature tips)
   if (messages.length === 0) {
     return (
-      <aside className="w-72 bg-theme-panel/20 border-l border-theme-border/70 p-5 lg:flex-col items-center justify-center text-center shrink-0 hidden lg:flex select-none">
-        <HelpCircle className="w-8 h-8 text-theme-muted/40 mb-3 animate-pulse" />
-        <h5 className="text-theme-text/80 font-semibold text-xs tracking-wide">
-          Telemetry Idle
-        </h5>
-        <p className="text-[11px] text-theme-muted max-w-45 mt-1 leading-relaxed">
-          Initiate an active session stream to monitor parametric context
-          parsing rules live.
-        </p>
+      <aside className="w-72 bg-theme-panel/20 border-l border-theme-border/70 p-5 lg:flex-col shrink-0 hidden lg:flex select-none h-full overflow-y-auto justify-between">
+        <div className="space-y-5 my-auto w-full">
+          <div className="text-center space-y-2">
+            <HelpCircle className="w-7 h-7 text-theme-accent mx-auto opacity-80 animate-pulse" />
+            <h5 className="text-theme-text font-bold text-xs uppercase tracking-wider">
+              Telemetry Guide
+            </h5>
+            <p className="text-[11px] text-theme-muted max-w-56 mx-auto leading-relaxed">
+              This panel monitors your conversational payload memory limits
+              live. Here is how to manage it:
+            </p>
+          </div>
+
+          <hr className="border-theme-border/40" />
+
+          {/* Core Feature Quick Tips List */}
+          <div className="space-y-4 text-left">
+            <div className="flex gap-2.5 items-start">
+              <div className="p-1 bg-theme-accent/10 border border-theme-accent/20 rounded-md text-theme-accent shrink-0 mt-0.5">
+                <Pin className="w-3.5 h-3.5" />
+              </div>
+              <div className="space-y-0.5">
+                <h6 className="text-xs font-bold text-theme-text">
+                  Anchor Core Pins
+                </h6>
+                <p className="text-[11px] text-theme-muted leading-relaxed">
+                  Pin critical system setups, ground truths, or complex rules to
+                  hold them in memory indefinitely.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 items-start">
+              <div className="p-1 bg-red-500/10 border border-red-500/20 rounded-md text-red-400 shrink-0 mt-0.5">
+                <Scissors className="w-3.5 h-3.5" />
+              </div>
+              <div className="space-y-0.5">
+                <h6 className="text-xs font-bold text-theme-text">
+                  Surgical Pruning
+                </h6>
+                <p className="text-[11px] text-theme-muted leading-relaxed">
+                  Cut noisy paragraphs or trailing off-topic chat lines to lower
+                  memory load without wiping history.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 items-start">
+              <div className="p-1 bg-black/30 border border-theme-border/40 rounded-md text-theme-muted shrink-0 mt-0.5">
+                <History className="w-3.5 h-3.5" />
+              </div>
+              <div className="space-y-0.5">
+                <h6 className="text-xs font-bold text-theme-text">
+                  Rolling Window Turn Budget
+                </h6>
+                <p className="text-[11px] text-theme-muted leading-relaxed">
+                  Unpinned elements older than 8 messages age out dynamically to
+                  make room for newer incoming context flags.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 border-t border-theme-border/40 font-mono text-[10px] text-theme-muted/60 tracking-wide text-center">
+          Status: Ready to Stream
+        </div>
       </aside>
     );
   }
@@ -118,7 +183,7 @@ export const ContextSidebar: React.FC = () => {
           </div>
           <div className="w-full h-1.5 bg-black/20 rounded-full overflow-hidden border border-white/5 shadow-inner">
             <div
-              className="h-full bg-theme-accent transition-all duration-500 ease-out rounded-full shadow-[0_0_8px_var(--color-theme-glow)]"
+              className="h-full bg-theme-accent transition-all duration-500 ease-out rounded-full"
               style={{ width: `${contextStats.loadPercentage}%` }}
             />
           </div>
@@ -175,7 +240,7 @@ export const ContextSidebar: React.FC = () => {
                   : isAgedOut
                     ? "bg-black/5 border-theme-border/20 opacity-30 text-theme-muted/50 saturate-50"
                     : msg.isPinned
-                      ? "bg-theme-panel border-theme-accent text-theme-text shadow-sm shadow-theme-accent/5"
+                      ? "bg-theme-panel border-theme-accent text-theme-text shadow-sm"
                       : "bg-theme-panel/40 border-theme-border/50 text-theme-text/90 hover:border-theme-border"
               }`}
             >
@@ -231,7 +296,7 @@ export const ContextSidebar: React.FC = () => {
                       ? "bg-theme-accent border-theme-accent text-theme-bg cursor-pointer"
                       : !canPinThisNode
                         ? "bg-black/5 border-theme-border/20 text-theme-muted/30 cursor-not-allowed pointer-events-none"
-                        : "bg-black/10 border-theme-border/40 text-theme-muted hover:text-theme-text hover:border-theme-border cursor-pointer"
+                        : "bg-black/10 border-theme-border/40 text-theme-muted hover:bg-theme-accent hover:border-theme-accent hover:text-theme-bg cursor-pointer"
                   }`}
                 >
                   <Pin className="w-3 h-3 stroke-[2.5]" />

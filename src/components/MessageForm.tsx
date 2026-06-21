@@ -10,7 +10,8 @@ import {
   Code,
   BrainCircuit,
   Terminal as DefaultIcon,
-  Square, // Added for Stop icon
+  Square,
+  Send, // Added for smaller execute look
 } from "lucide-react";
 
 interface MessageFormProps {
@@ -98,7 +99,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
         textareaRef.current?.focus();
       }, 50);
     }
-  }, [messages.length]); // Triggers when messages are cleared
+  }, [messages.length]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -110,8 +111,8 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   };
 
   return (
-    <div className="space-y-3 w-full bg-theme-bg">
-      {/* System Personas Tray Dock: Displays only when conversation history is fresh */}
+    <div className="space-y-2 w-full bg-theme-bg">
+      {/* System Personas Tray Dock */}
       {messages.length === 0 && (
         <div className="flex flex-col space-y-1">
           <div className="text-[10px] font-bold text-theme-muted flex items-center gap-1 shrink-0 uppercase tracking-wider pl-1">
@@ -168,11 +169,8 @@ export const MessageForm: React.FC<MessageFormProps> = ({
       )}
 
       {/* INPUT CONTROLLER CONTAINER */}
-      <form
-        onSubmit={onSubmit}
-        className="flex gap-2 items-end transition-colors duration-200"
-      >
-        <div className="flex-1 relative flex items-center bg-theme-panel border border-theme-border rounded-xl focus-within:border-theme-accent/60 transition">
+      <form onSubmit={onSubmit} className="w-full">
+        <div className="relative flex items-end bg-theme-panel border border-theme-border rounded-xl focus-within:border-theme-accent/60 transition p-1.5">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -181,34 +179,34 @@ export const MessageForm: React.FC<MessageFormProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={
               isLoading
-                ? "Engine compiling response..."
-                : "Enter structural instructions... (Ctrl+Enter to execute)"
+                ? "Engine compiling..."
+                : "Enter Prompt... (Ctrl+Enter to execute)"
             }
             disabled={isLoading}
-            className="w-full bg-transparent max-h-40 resize-none px-4 py-3.5 text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono leading-relaxed"
+            className="w-full bg-transparent max-h-40 resize-none pl-3 pr-12 py-2 text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono leading-relaxed"
           />
-        </div>
 
-        {/* Dynamic Execute/Stop Button */}
-        <button
-          type={isLoading ? "button" : "submit"}
-          onClick={isLoading ? stopGeneration : undefined}
-          disabled={!isLoading && input.trim().length === 0}
-          className={`${
-            isLoading
-              ? "bg-theme-muted hover:bg-red-500 text-white"
-              : "bg-theme-accent hover:bg-theme-accent-hover text-theme-bg"
-          } font-semibold px-5 h-11.5 rounded-xl text-sm transition-all cursor-pointer active:scale-[0.98] shrink-0 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          {isLoading ? (
-            <>
-              <Square className="w-3 h-3 fill-current" />
-              Stop
-            </>
-          ) : (
-            "Execute"
-          )}
-        </button>
+          {/* Inline Action Button */}
+          <div className="absolute right-2 bottom-2">
+            <button
+              type={isLoading ? "button" : "submit"}
+              onClick={isLoading ? stopGeneration : undefined}
+              disabled={!isLoading && input.trim().length === 0}
+              title={isLoading ? "Stop Execution" : "Send Prompt"}
+              className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLoading
+                  ? "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
+                  : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
+              }`}
+            >
+              {isLoading ? (
+                <Square className="w-3.5 h-3.5 fill-current" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
       </form>
     </div>
   );

@@ -410,6 +410,12 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Repetition Filter
+                            <span
+                              className="cursor-help text-theme-muted"
+                              title="Discourages the model from repeating the exact same words or phrases close together."
+                            >
+                              <HelpCircle className="w-3 h-3" />
+                            </span>
                           </span>
                           <span className="text-theme-accent font-mono font-semibold bg-theme-bg px-1.5 py-0.5 rounded text-[11px]">
                             {localFreqPenalty === 0
@@ -438,6 +444,12 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Topic Variation
+                            <span
+                              className="cursor-help text-theme-muted"
+                              title="Encourages the AI to introduce new concepts and broader subjects instead of sticking to one lane."
+                            >
+                              <HelpCircle className="w-3 h-3" />
+                            </span>
                           </span>
                           <span className="text-theme-accent font-mono font-semibold bg-theme-bg px-1.5 py-0.5 rounded text-[11px]">
                             {localPresPenalty === 0
