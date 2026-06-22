@@ -190,7 +190,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
           <div className="absolute right-2 bottom-2">
             <button
               type={isLoading ? "button" : "submit"}
-              onClick={isLoading ? stopGeneration : undefined}
+              onClick={isLoading ? () => stopGeneration() : undefined}
               disabled={!isLoading && input.trim().length === 0}
               title={isLoading ? "Stop Execution" : "Send Prompt"}
               className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${

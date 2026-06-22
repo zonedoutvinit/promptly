@@ -303,6 +303,7 @@ export const extractMicroIntentAgnostic = (rawBlock: string): string => {
       "that",
       "these",
       "those",
+      "here",
     ]).has(lower);
 
     return lower.length > 2 && !fillerBlacklist.includes(lower) && !isStopWord;
