@@ -36,30 +36,19 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "dist/index.html"));
 
     if (process.platform === "linux") {
-      let channelFile = "latest-linux.yml";
-
+      let channel = "latest";
+      // Determine the channel based on the OS
       if (fs.existsSync("/etc/arch-release")) {
-        autoUpdater.channel = "pacman";
-        channelFile = "pacman-linux.yml";
+        channel = "pacman";
       } else if (fs.existsSync("/etc/debian_version")) {
-        autoUpdater.channel = "deb";
-        channelFile = "deb-linux.yml";
+        channel = "deb";
       } else if (
         fs.existsSync("/etc/redhat-release") ||
         fs.existsSync("/etc/fedora-release")
       ) {
-        autoUpdater.channel = "rpm";
-        channelFile = "rpm-linux.yml";
+        channel = "rpm";
       }
-
-      autoUpdater.requestHeaders = { "Cache-Control": "no-cache" };
-      autoUpdater.updateConfigPath = path.join(app.getAppPath(), channelFile);
-      autoUpdater.setFeedURL({
-        provider: "github",
-        owner: "zonedoutvinit",
-        repo: "promptly",
-        channel: channelFile,
-      });
+      autoUpdater.channel = channel;
     }
 
     // Auto-updater check (Only in production)

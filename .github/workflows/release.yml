@@ -58,18 +58,31 @@ jobs:
       - name: Build Source
         run: npm run build
 
-      # 1. Package the release as usual
       - name: Package Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder ${{ matrix.args }} --publish always --config.publish.channel=${{ matrix.channel }}
 
-      # 2. RENAME the manifest file so it doesn't get overwritten by the next job
-      - name: Rename Metadata for ${{ matrix.name }}
+      - name: Create Metadata Manually
         if: runner.os == 'Linux'
-        run: mv dist/latest-linux.yml dist/${{ matrix.channel }}-linux.yml
+        run: |
+          # 1. Identify the installer file we just built
+          FILE=$(ls dist/*.${{ matrix.channel }} 2>/dev/null | head -n 1)
 
-      # 3. Upload the renamed artifact
+          # 2. Extract the filename and calculate sha512 (required for electron-updater)
+          FILENAME=$(basename "$FILE")
+          SHA=$(sha512sum "$FILE" | cut -d ' ' -f 1)
+
+          # 3. Create the YAML file that electron-updater expects
+          cat <<EOF > dist/${{ matrix.channel }}-linux.yml
+          version: ${{ github.ref_name }}
+          path: $FILENAME
+          sha512: $SHA
+          releaseDate: '$(date -u +"%Y-%m-%dT%H:%M:%SZ")'
+          EOF
+
+          echo "Created dist/${{ matrix.channel }}-linux.yml for $FILENAME"
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
