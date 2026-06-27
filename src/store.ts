@@ -43,7 +43,8 @@ interface ChatState {
   settings: EngineSettings;
   theme: string;
   customPersonas: SystemProfile[];
-  abortController: AbortController | null;
+  // Keyed map tracking concurrent background stream terminations cleanly
+  abortControllers: Record<string, AbortController>;
 
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
@@ -66,7 +67,8 @@ interface ChatState {
   selectSession: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
-  stopGeneration: () => void;
+  // Accepts an optional specific sessionId to halt background updates
+  stopGeneration: (id?: string) => void;
   loadSessionsFromStorage: () => Promise<void>;
   toggleMessagePin: (index: number) => Promise<void>;
   toggleMessagePrune: (index: number) => Promise<void>;
@@ -279,34 +281,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
   settings: getInitialSettings(),
   theme: getInitialTheme(),
   customPersonas: getInitialPersonas(),
-  abortController: null,
+  abortControllers: {},
 
-  stopGeneration: () => {
-    const {
-      abortController,
-      currentSessionId,
-      model,
-      messages,
-      sessions,
-      loadSessionsFromStorage,
-    } = get();
-    if (abortController) {
-      abortController.abort();
+  stopGeneration: (id?: string) => {
+    const { abortControllers, currentSessionId, sessions } = get();
+    const targetId = id || currentSessionId;
+    if (!targetId) return;
 
-      if (currentSessionId) {
-        const match = sessions.find((s) => s.id === currentSessionId);
-        const activeTitle = match?.title || "Active Discussion";
-        const finalSessionRecord: ChatSession = {
-          id: currentSessionId,
-          title: activeTitle,
-          model,
-          messages: messages,
-          updatedAt: Date.now(),
+    const controller = abortControllers[targetId];
+    if (controller) {
+      controller.abort();
+
+      const match = sessions.find((s) => s.id === targetId);
+      const activeTitle = match?.title || "Active Discussion";
+
+      const finalSessionRecord: ChatSession = {
+        id: targetId,
+        title: activeTitle,
+        model: match?.model || get().model,
+        messages: match?.messages || [],
+        updatedAt: Date.now(),
+      };
+
+      saveSession(finalSessionRecord).then(() =>
+        get().loadSessionsFromStorage(),
+      );
+
+      set((state) => {
+        const newControllers = { ...state.abortControllers };
+        delete newControllers[targetId];
+
+        return {
+          abortControllers: newControllers,
+          // Only switch off loading indicator if we stopped the chat the user is actively viewing
+          ...(state.currentSessionId === targetId ? { isLoading: false } : {}),
         };
-        saveSession(finalSessionRecord).then(() => loadSessionsFromStorage());
-      }
-
-      set({ abortController: null, isLoading: false });
+      });
     }
   },
 
@@ -541,7 +551,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentSessionId: null,
       messages: [],
       isLoading: false,
-      abortController: null,
     });
   },
 
@@ -552,6 +561,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         currentSessionId: id,
         messages: target.messages,
         model: target.model || get().model || get().availableModels[0],
+        // Evaluate loading indicator dynamically relative to this session's background status
+        isLoading: !!get().abortControllers[id],
       });
     }
   },
@@ -651,6 +662,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const provider = settings.currentProvider;
     const activeProviderConfig = settings.providers[provider];
 
+    // Lock unique closure execution context identifiers cleanly
     let sessionId = currentSessionId || crypto.randomUUID();
     const isBrandNewSession = !currentSessionId;
     const controller = new AbortController();
@@ -692,12 +704,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await saveSession(transientSessionRecord);
     await get().loadSessionsFromStorage();
 
-    set({
+    set((state) => ({
       currentSessionId: sessionId,
       messages: transientSessionRecord.messages,
       isLoading: true,
-      abortController: controller,
-    });
+      abortControllers: { ...state.abortControllers, [sessionId]: controller },
+    }));
 
     try {
       const headers: Record<string, string> = {
@@ -777,30 +789,61 @@ export const useChatStore = create<ChatState>((set, get) => ({
               }
             }
 
+            // Target state updates structurally relative to their designated unique sessionId
             set((state) => {
-              const currentHistory = [...state.messages];
-              if (currentHistory.length > 0) {
-                currentHistory[currentHistory.length - 1] = {
-                  ...currentHistory[currentHistory.length - 1],
-                  content: assistantTextAccumulator,
-                  timestamp: Date.now(),
-                  isPinned: false,
-                  isPruned: false,
-                };
-              }
-              return { messages: currentHistory };
+              const updatedSessions = state.sessions.map((s) => {
+                if (s.id === sessionId) {
+                  const currentHistory = [...s.messages];
+                  if (currentHistory.length > 0) {
+                    currentHistory[currentHistory.length - 1] = {
+                      ...currentHistory[currentHistory.length - 1],
+                      content: assistantTextAccumulator,
+                      timestamp: Date.now(),
+                    };
+                  }
+                  return {
+                    ...s,
+                    messages: currentHistory,
+                    updatedAt: Date.now(),
+                  };
+                }
+                return s;
+              });
+
+              // Only update workspace display if user hasn't switched chats
+              const isCurrent = state.currentSessionId === sessionId;
+              const updatedMessages = isCurrent
+                ? updatedSessions.find((s) => s.id === sessionId)?.messages ||
+                  state.messages
+                : state.messages;
+
+              return {
+                sessions: updatedSessions,
+                messages: updatedMessages,
+              };
             });
           } catch (e) {}
         }
       }
 
-      set({ isLoading: false, abortController: null });
+      set((state) => {
+        const newControllers = { ...state.abortControllers };
+        delete newControllers[sessionId];
+        return {
+          abortControllers: newControllers,
+          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
+        };
+      });
+
+      const finalMessages =
+        get().sessions.find((s) => s.id === sessionId)?.messages ||
+        get().messages;
 
       const finalSessionRecord: ChatSession = {
         id: sessionId,
         title: initialTitle,
         model,
-        messages: get().messages,
+        messages: finalMessages,
         updatedAt: Date.now(),
       };
 
@@ -811,20 +854,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.log("Streaming request gracefully severed by the client.");
       } else {
         console.error("Inference execution failed:", error);
-        set({ isLoading: false, abortController: null });
       }
+      set((state) => {
+        const newControllers = { ...state.abortControllers };
+        delete newControllers[sessionId];
+        return {
+          abortControllers: newControllers,
+          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
+        };
+      });
     }
   },
 
   onUpdateUserMessage: async (index: number, newContent: string) => {
-    const { messages, isLoading } = get();
-    if (isLoading || !newContent.trim()) return;
+    const { messages, isLoading, currentSessionId } = get();
+    if (isLoading || !newContent.trim() || !currentSessionId) return;
 
     // Truncate the history right up to the user message being edited
     const cleanHistory = messages.slice(0, index);
 
-    // Execute using the existing message pipeline
-    set({ messages: cleanHistory });
+    // Sync state configuration arrays prior to calling pipeline
+    set((state) => {
+      const updatedSessions = state.sessions.map((s) => {
+        if (s.id === currentSessionId) {
+          return { ...s, messages: cleanHistory, updatedAt: Date.now() };
+        }
+        return s;
+      });
+      return { messages: cleanHistory, sessions: updatedSessions };
+    });
+
     await get().sendMessage(newContent);
   },
 
@@ -857,10 +916,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const controller = new AbortController();
     const cleanHistory = messages.slice(0, targetUserIdx + 1);
 
-    // Centralized Telemetry Assembly Channel Execution for checkpoint regeneration
+    // Explicit closure lock for background checkpoint loop
+    const sessionId = currentSessionId;
+
     const compiledActiveContext = compileTelemetryPayload(
       cleanHistory,
-      currentSessionId,
+      sessionId,
       customPersonas,
     );
 
@@ -876,10 +937,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     ];
 
-    set({
-      messages: streamingHistory,
-      isLoading: true,
-      abortController: controller,
+    set((state) => {
+      const updatedSessions = state.sessions.map((s) => {
+        if (s.id === sessionId) {
+          return { ...s, messages: streamingHistory, updatedAt: Date.now() };
+        }
+        return s;
+      });
+      return {
+        messages: streamingHistory,
+        sessions: updatedSessions,
+        isLoading: true,
+        abortControllers: {
+          ...state.abortControllers,
+          [sessionId]: controller,
+        },
+      };
     });
 
     try {
@@ -970,29 +1043,54 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
 
             set((state) => {
-              const currentHistory = [...state.messages];
-              if (currentHistory.length > 0) {
-                currentHistory[currentHistory.length - 1] = {
-                  ...currentHistory[currentHistory.length - 1],
-                  content: assistantTextAccumulator,
-                  timestamp: Date.now(),
-                };
-              }
-              return { messages: currentHistory };
+              const updatedSessions = state.sessions.map((s) => {
+                if (s.id === sessionId) {
+                  const currentHistory = [...s.messages];
+                  if (currentHistory.length > 0) {
+                    currentHistory[currentHistory.length - 1] = {
+                      ...currentHistory[currentHistory.length - 1],
+                      content: assistantTextAccumulator,
+                      timestamp: Date.now(),
+                    };
+                  }
+                  return {
+                    ...s,
+                    messages: currentHistory,
+                    updatedAt: Date.now(),
+                  };
+                }
+                return s;
+              });
+
+              const isCurrent = state.currentSessionId === sessionId;
+              const updatedMessages = isCurrent
+                ? updatedSessions.find((s) => s.id === sessionId)?.messages ||
+                  state.messages
+                : state.messages;
+
+              return {
+                sessions: updatedSessions,
+                messages: updatedMessages,
+              };
             });
           } catch (e) {}
         }
       }
 
-      set({ isLoading: false, abortController: null });
+      set((state) => {
+        const newControllers = { ...state.abortControllers };
+        delete newControllers[sessionId];
+        return {
+          abortControllers: newControllers,
+          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
+        };
+      });
 
-      const sessionMatch = get().sessions.find(
-        (s) => s.id === currentSessionId,
-      );
+      const sessionMatch = get().sessions.find((s) => s.id === sessionId);
       if (sessionMatch) {
         const finalSessionRecord = {
           ...sessionMatch,
-          messages: get().messages,
+          messages: sessionMatch.messages,
           updatedAt: Date.now(),
         };
         await saveSession(finalSessionRecord);
@@ -1003,8 +1101,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.log("Checkpoint regeneration loop gracefully halted.");
       } else {
         console.error("Context regeneration failed:", error);
-        set({ isLoading: false, abortController: null });
       }
+      set((state) => {
+        const newControllers = { ...state.abortControllers };
+        delete newControllers[sessionId];
+        return {
+          abortControllers: newControllers,
+          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
+        };
+      });
     }
   },
 }));

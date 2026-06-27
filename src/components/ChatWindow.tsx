@@ -96,6 +96,11 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
   const [editContent, setEditContent] = useState("");
 
   const [isTuning, setIsTuning] = useState(false);
+  // Tracks if the dropdown opens above or below the cog
+  const [popoverDirection, setPopoverDirection] = useState<"above" | "below">(
+    "below",
+  );
+
   const [localTemp, setLocalTemp] = useState(0.7);
   const [localTopP, setLocalTopP] = useState(0.9);
   const [localFreqPenalty, setLocalFreqPenalty] = useState(0.0);
@@ -190,9 +195,15 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
     setIsEditing(false);
   };
 
-  const handleToggleTuning = (e: React.MouseEvent) => {
+  // Typed explicitly to HTMLButtonElement to accurately capture coordinates
+  const handleToggleTuning = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!isTuning) {
+      // Check vertical coordinate space relative to viewport midpoint
+      const rect = e.currentTarget.getBoundingClientRect();
+      const isBelowCenter = rect.top > window.innerHeight / 2;
+      setPopoverDirection(isBelowCenter ? "above" : "below");
+
       setLocalTemp(msg.temperature ?? 0.7);
       setLocalTopP(msg.topP ?? 0.9);
       setLocalFreqPenalty(msg.frequencyPenalty ?? 0.0);
@@ -328,7 +339,12 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                 {isTuning && (
                   <div
                     ref={popoverRef}
-                    className="absolute right-0 z-50 w-72 bg-theme-panel border border-theme-border rounded-xl shadow-xl p-4 space-y-4 text-theme-text cursor-default text-left animate-in fade-in slide-in-from-top-1 duration-150 top-7 origin-top"
+                    /* Evaluates orientation constraints and updates anchors dynamically */
+                    className={`absolute right-0 z-50 w-72 bg-theme-panel border border-theme-border rounded-xl shadow-xl p-4 space-y-4 text-theme-text cursor-default text-left animate-in fade-in duration-150 ${
+                      popoverDirection === "above"
+                        ? "bottom-7 origin-bottom slide-in-from-bottom-1"
+                        : "top-7 origin-top slide-in-from-top-1"
+                    }`}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-theme-muted uppercase tracking-wider border-b border-theme-border/40 pb-1.5">
@@ -410,6 +426,12 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Repetition Filter
+                            <span
+                              className="cursor-help text-theme-muted"
+                              title="Discourages the model from repeating the exact same words or phrases close together."
+                            >
+                              <HelpCircle className="w-3 h-3" />
+                            </span>
                           </span>
                           <span className="text-theme-accent font-mono font-semibold bg-theme-bg px-1.5 py-0.5 rounded text-[11px]">
                             {localFreqPenalty === 0
@@ -438,6 +460,12 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-theme-text/90 font-medium flex items-center gap-1">
                             Topic Variation
+                            <span
+                              className="cursor-help text-theme-muted"
+                              title="Encourages the AI to introduce new concepts and broader subjects instead of sticking to one lane."
+                            >
+                              <HelpCircle className="w-3 h-3" />
+                            </span>
                           </span>
                           <span className="text-theme-accent font-mono font-semibold bg-theme-bg px-1.5 py-0.5 rounded text-[11px]">
                             {localPresPenalty === 0
