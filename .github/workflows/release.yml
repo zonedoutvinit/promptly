@@ -57,24 +57,18 @@ jobs:
       - name: Build Source
         run: npm run build
 
-      # 1. Package and Upload Binaries to Release
-      # electron-builder --publish always does the heavy lifting for the binary files
+      # 1. Package the binaries (NO publishing)
       - name: Package Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder ${{ matrix.args }} --publish always --config.publish.channel=${{ matrix.channel }}
+        run: npx electron-builder ${{ matrix.args }} --publish never --config.publish.channel=${{ matrix.channel }}
 
-      # 2. Create the missing Metadata YAML
-      # This creates the file electron-builder skipped for beta Linux targets
+      # 2. Create the missing Metadata YAML (Crucial for Linux beta targets)
       - name: Create Metadata Manually
         if: runner.os == 'Linux'
         run: |
           FILE=$(ls dist/*.${{ matrix.channel }} 2>/dev/null | head -n 1)
           if [ -z "$FILE" ]; then exit 1; fi
-
           FILENAME=$(basename "$FILE")
           SHA=$(sha512sum "$FILE" | cut -d ' ' -f 1)
-
           cat <<EOF > dist/${{ matrix.channel }}-linux.yml
           version: ${{ github.ref_name }}
           path: $FILENAME
@@ -82,26 +76,20 @@ jobs:
           releaseDate: '$(date -u +"%Y-%m-%dT%H:%M:%SZ")'
           EOF
 
-      # 3. Upload to Actions Tab (for your own inspection)
-      - name: Upload Artifacts (Internal Debugging)
-        uses: actions/upload-artifact@v4
+      # 3. Final Upload (This handles both Binaries + Metadata)
+      # We use 'draft: true' so you can review before it goes live.
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: ${{ matrix.name }}-artifacts
-          path: |
+          draft: true
+          files: |
             dist/*.exe
             dist/*.dmg
             dist/*.deb
             dist/*.rpm
             dist/*.pacman
-            dist/*-linux.yml
-
-      # 4. Attach Metadata to Public Release Page
-      # This only uploads the .yml files. The binaries are already there.
-      - name: Append Metadata to Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
+            dist/*.tar.*
             dist/*-linux.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
