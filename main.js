@@ -36,6 +36,27 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "dist/index.html"));
 
+    // Fix: Route Linux updates cleanly to avoid cross-contamination of packages
+    if (process.platform === "linux") {
+      const exePath = app.getPath("exe");
+
+      if (
+        exePath.includes("/usr/bin") ||
+        exePath.includes("/opt/Promptly") ||
+        exePath.includes("pacman")
+      ) {
+        // Explicitly point Arch Linux system installations to the isolated pacman channel
+        autoUpdater.channel = "pacman";
+      } else if (
+        exePath.includes("deb") ||
+        fs.existsSync("/etc/debian_version")
+      ) {
+        autoUpdater.channel = "deb";
+      } else {
+        autoUpdater.channel = "rpm";
+      }
+    }
+
     // Auto-updater check (Only in production)
     autoUpdater.checkForUpdatesAndNotify();
   }
