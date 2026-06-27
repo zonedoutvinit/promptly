@@ -62,7 +62,7 @@ jobs:
       - name: Package Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist -- ${{ matrix.args }} -c.publish.provider=github -c.publish.channel=${{ matrix.channel }}
+        run: npx electron-builder ${{ matrix.args }} --publish always --config.publish.channel=${{ matrix.channel }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
