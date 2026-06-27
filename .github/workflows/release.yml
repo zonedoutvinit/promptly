@@ -58,12 +58,18 @@ jobs:
       - name: Build Source
         run: npm run build
 
-      # Pass the matrix channel to electron-builder so it names the .yml files correctly
+      # 1. Package the release as usual
       - name: Package Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder ${{ matrix.args }} --publish always --config.publish.channel=${{ matrix.channel }}
 
+      # 2. RENAME the manifest file so it doesn't get overwritten by the next job
+      - name: Rename Metadata for ${{ matrix.name }}
+        if: runner.os == 'Linux'
+        run: mv dist/latest-linux.yml dist/${{ matrix.channel }}-linux.yml
+
+      # 3. Upload the renamed artifact
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -75,4 +81,4 @@ jobs:
             dist/*.rpm
             dist/*.pacman
             dist/*.tar.*
-            dist/*.yml
+            dist/*-linux.yml
