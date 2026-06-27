@@ -1,7 +1,8 @@
 // main.js
 const { app, BrowserWindow } = require("electron");
 const path = require("path");
-const { autoUpdater } = require("electron-updater"); // Added
+const fs = require("fs"); // Required for bulletproof Linux detection
+const { autoUpdater } = require("electron-updater");
 
 app.setPath("userData", path.join(app.getPath("appData"), "promptly"));
 
@@ -11,49 +12,42 @@ function getIconPath() {
     return path.join(__dirname, "public", "favicon.ico");
   }
   if (process.platform === "darwin") {
-    return path.join(__dirname, "public", "icon.icns"); // Generated Apple icon container
+    return path.join(__dirname, "public", "icon.icns");
   }
-  return path.join(__dirname, "public", "android-chrome-512x512.png"); // Linux default
+  return path.join(__dirname, "public", "android-chrome-512x512.png");
 }
 
 function createWindow() {
-  // Create the window with your custom OS-specific icon
   const mainWindow = new BrowserWindow({
-    show: false, // Keep hidden initially to prevent cross-OS flashing
-    autoHideMenuBar: true, // Hides the top file menu bar cleanly
-    icon: getIconPath(), // Injects your brand asset into the window/taskbar
+    show: false,
+    autoHideMenuBar: true,
+    icon: getIconPath(),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false, // Keeps local LLM routing open
+      webSecurity: false,
     },
   });
 
-  // Dynamically load Dev Server vs Build Output
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "dist/index.html"));
 
-    // Fix: Route Linux updates cleanly to avoid cross-contamination of packages
+    // Robust OS detection for auto-updater channels
     if (process.platform === "linux") {
-      const exePath = app.getPath("exe");
-
-      if (
-        exePath.includes("/usr/bin") ||
-        exePath.includes("/opt/Promptly") ||
-        exePath.includes("pacman")
-      ) {
-        // Explicitly point Arch Linux system installations to the isolated pacman channel
-        autoUpdater.channel = "pacman";
+      if (fs.existsSync("/etc/arch-release")) {
+        autoUpdater.channel = "pacman"; // Looks for pacman-linux.yml
+      } else if (fs.existsSync("/etc/debian_version")) {
+        autoUpdater.channel = "deb"; // Looks for deb-linux.yml
       } else if (
-        exePath.includes("deb") ||
-        fs.existsSync("/etc/debian_version")
+        fs.existsSync("/etc/redhat-release") ||
+        fs.existsSync("/etc/fedora-release")
       ) {
-        autoUpdater.channel = "deb";
+        autoUpdater.channel = "rpm"; // Looks for rpm-linux.yml
       } else {
-        autoUpdater.channel = "rpm";
+        autoUpdater.channel = "latest"; // Fallback
       }
     }
 

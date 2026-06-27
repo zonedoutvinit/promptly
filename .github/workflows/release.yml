@@ -18,18 +18,23 @@ jobs:
           - os: windows-latest
             name: Windows
             args: --win
+            channel: latest
           - os: macos-latest
             name: macOS
             args: --mac
+            channel: latest
           - os: ubuntu-latest
             name: Linux-Deb
             args: --linux deb
+            channel: deb
           - os: ubuntu-latest
             name: Linux-RPM
             args: --linux rpm
+            channel: rpm
           - os: ubuntu-latest
             name: Linux-Pacman
             args: --linux pacman
+            channel: pacman
 
     steps:
       - name: Checkout code
@@ -44,21 +49,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24 # Updated to Node 24
-          cache: "npm" # Automatically caches dependencies to shave off install time
+          node-version: 24
+          cache: "npm"
 
       - name: Install dependencies
         run: npm install
 
-      # Decouple the build step from the packaging step
       - name: Build Source
         run: npm run build
 
-      # Run electron-builder with the specific arguments defined in the matrix
+      # Pass the matrix channel to electron-builder so it names the .yml files correctly
       - name: Package Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist -- ${{ matrix.args }}
+        run: npm run dist -- ${{ matrix.args }} -c.publish.provider=github -c.publish.channel=${{ matrix.channel }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -71,3 +75,4 @@ jobs:
             dist/*.rpm
             dist/*.pacman
             dist/*.tar.*
+            dist/*.yml
