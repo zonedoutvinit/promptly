@@ -58,12 +58,14 @@ jobs:
         run: npm run build
 
       # 1. Package the binaries
-      # The "provider=generic" trick forces electron-builder to generate
-      # latest.yml, latest-mac.yml, and .blockmap files locally, even though it's not publishing.
+      # --publish prevents electron-builder from uploading, but because "publish"
+      # is set to "github" in package.json, it WILL generate latest.yml/latest-mac.yml
+      # with the correct github.com/zonedoutvinit/promptly download URLs.
       - name: Package Release
-        run: npx electron-builder ${{ matrix.args }} --publish never --config.publish.provider=generic --config.publish.channel=${{ matrix.channel }}
+        run: npx electron-builder ${{ matrix.args }} --publish never
 
       # 2. Create the missing Metadata YAML (Only for Linux)
+      # Kept specifically because electron-builder does not generate pacman-linux.yml
       - name: Create Metadata Manually
         if: runner.os == 'Linux'
         run: |
@@ -73,8 +75,9 @@ jobs:
           SHA=$(sha512sum "$FILE" | cut -d ' ' -f 1)
           cat <<EOF > dist/${{ matrix.channel }}-linux.yml
           version: ${{ github.ref_name }}
-          path: $FILENAME
-          sha512: $SHA
+          files:
+            - url: $FILENAME
+              sha512: $SHA
           releaseDate: '$(date -u +"%Y-%m-%dT%H:%M:%SZ")'
           EOF
 
