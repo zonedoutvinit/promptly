@@ -1,7 +1,6 @@
 // main.js
 const { app, BrowserWindow } = require("electron");
 const path = require("path");
-const fs = require("fs"); // Required for bulletproof Linux detection
 const { autoUpdater } = require("electron-updater");
 
 app.setPath("userData", path.join(app.getPath("appData"), "promptly"));
@@ -35,23 +34,16 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "dist/index.html"));
 
-    if (process.platform === "linux") {
-      let channel = "latest";
-      // Determine the channel based on the OS
-      if (fs.existsSync("/etc/arch-release")) {
-        channel = "pacman";
-      } else if (fs.existsSync("/etc/debian_version")) {
-        channel = "deb";
-      } else if (
-        fs.existsSync("/etc/redhat-release") ||
-        fs.existsSync("/etc/fedora-release")
-      ) {
-        channel = "rpm";
-      }
-      autoUpdater.channel = channel;
+    // Ensure AppImage tracking works smoothly on Linux systems
+    if (process.platform === "linux" && !process.env.APPIMAGE) {
+      process.env.APPIMAGE = path.join(
+        process.resourcesPath,
+        "..",
+        "promptly.AppImage",
+      );
     }
 
-    // Auto-updater check (Only in production)
+    // Auto-updater check (Only in production, handles Windows, macOS, and Linux AppImage natively)
     autoUpdater.checkForUpdatesAndNotify();
   }
 

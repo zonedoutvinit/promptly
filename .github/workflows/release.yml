@@ -17,33 +17,16 @@ jobs:
           - os: windows-latest
             name: Windows
             args: --win
-            channel: latest
           - os: macos-latest
             name: macOS
             args: --mac
-            channel: latest
           - os: ubuntu-latest
-            name: Linux-Deb
-            args: --linux deb
-            channel: deb
-          - os: ubuntu-latest
-            name: Linux-RPM
-            args: --linux rpm
-            channel: rpm
-          - os: ubuntu-latest
-            name: Linux-Pacman
-            args: --linux pacman
-            channel: pacman
+            name: Linux-AppImage
+            args: --linux AppImage
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rpm libarchive-tools
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -57,31 +40,14 @@ jobs:
       - name: Build Source
         run: npm run build
 
-      # 1. Package the binaries
-      # --publish prevents electron-builder from uploading, but because "publish"
-      # is set to "github" in package.json, it WILL generate latest.yml/latest-mac.yml
-      # with the correct github.com/zonedoutvinit/promptly download URLs.
+      # Package the binaries
+      # --publish prevents electron-builder from uploading immediately,
+      # but it WILL generate correct latest.yml, latest-mac.yml, and latest-linux.yml configurations.
       - name: Package Release
         run: npx electron-builder ${{ matrix.args }} --publish never
 
-      # 2. Create the missing Metadata YAML (Only for Linux)
-      # Kept specifically because electron-builder does not generate pacman-linux.yml
-      - name: Create Metadata Manually
-        if: runner.os == 'Linux'
-        run: |
-          FILE=$(ls dist/*.${{ matrix.channel }} 2>/dev/null | head -n 1)
-          if [ -z "$FILE" ]; then exit 1; fi
-          FILENAME=$(basename "$FILE")
-          SHA=$(sha512sum "$FILE" | cut -d ' ' -f 1)
-          cat <<EOF > dist/${{ matrix.channel }}-linux.yml
-          version: ${{ github.ref_name }}
-          files:
-            - url: $FILENAME
-              sha512: $SHA
-          releaseDate: '$(date -u +"%Y-%m-%dT%H:%M:%SZ")'
-          EOF
-
-      # 3. Upload to Release
+      # Upload to GitHub Release
+      # Upstream updater blockmaps (.blockmap) are preserved to secure delta-updates for Win/Linux.
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
@@ -90,14 +56,11 @@ jobs:
           files: |
             dist/*.exe
             dist/*.dmg
-            dist/*.deb
-            dist/*.rpm
-            dist/*.pacman
-            dist/*.tar.*
+            dist/*.AppImage
             dist/*.zip
             dist/*.blockmap
             dist/latest.yml
             dist/latest-mac.yml
-            dist/*-linux.yml
+            dist/latest-linux.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
