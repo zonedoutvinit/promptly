@@ -84,6 +84,12 @@ interface ChatState {
       presencePenalty: number;
     },
   ) => Promise<void>;
+
+  isFetchingModels: boolean;
+  providerError: string | null;
+  testProviderConnection: (
+    provider: ProviderType,
+  ) => Promise<{ success: boolean; message: string }>;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -282,6 +288,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   theme: getInitialTheme(),
   customPersonas: getInitialPersonas(),
   abortControllers: {},
+  isFetchingModels: false,
+  providerError: null,
 
   stopGeneration: (id?: string) => {
     const { abortControllers, currentSessionId, sessions } = get();
@@ -338,7 +346,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       "promptly_engine_settings",
       JSON.stringify(updatedSettings),
     );
-    set({ settings: updatedSettings, availableModels: [], model: "" });
+
+    // Clear error and reset selections cleanly
+    set({
+      settings: updatedSettings,
+      availableModels: [],
+      model: "",
+      providerError: null,
+    });
 
     await get().fetchModels();
   },
@@ -463,69 +478,87 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const provider = settings.currentProvider;
     const activeProviderConfig = settings.providers[provider];
 
+    // 1. Guard clause: Don't fetch if URL is missing for non-Gemini providers
+    if (
+      provider !== "gemini" &&
+      (!activeProviderConfig?.baseUrl ||
+        activeProviderConfig.baseUrl.trim() === "")
+    ) {
+      set({
+        availableModels: [],
+        providerError: "Base URL is required for this provider.",
+      });
+      return;
+    }
+
+    set({ isFetchingModels: true, providerError: null });
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
 
-    let targetUrl =
-      provider === "gemini"
-        ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
-        : `${activeProviderConfig.baseUrl}/v1/models`;
-
-    if (activeProviderConfig.encryptedApiKey) {
-      const activeKey = await decryptKey(activeProviderConfig.encryptedApiKey);
-      if (activeKey) {
-        headers["Authorization"] = `Bearer ${activeKey}`;
-      }
-    }
-
     try {
-      if (provider === "ollama") {
-        targetUrl = `${activeProviderConfig.baseUrl}/api/tags`;
-        const response = await fetch(targetUrl, { headers });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        const models = data.models.map((m: any) => m.name);
-        set({ availableModels: models });
-      } else if (provider === "gemini") {
-        const targetGeminiModels = ["gemini-2.5-flash", "gemini-2.5-pro"];
-        try {
-          const response = await fetch(targetUrl, { headers });
-          if (!response.ok) throw new Error();
-          const data = await response.json();
-          const fetchedModels = data.data.map((m: any) => m.id);
-          const filtered = targetGeminiModels.filter((m) =>
-            fetchedModels.includes(m),
-          );
-
-          set({
-            availableModels:
-              filtered.length > 0 ? filtered : targetGeminiModels,
-          });
-        } catch {
-          set({ availableModels: targetGeminiModels });
-        }
-      } else {
-        const response = await fetch(targetUrl, { headers });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        const models = data.data.map((m: any) => m.id);
-        set({ availableModels: models });
+      // ... (Your decryption logic remains the same)
+      if (activeProviderConfig?.encryptedApiKey) {
+        const activeKey = await decryptKey(
+          activeProviderConfig.encryptedApiKey,
+        );
+        if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
       }
 
-      const models = get().availableModels;
+      let targetUrl =
+        provider === "gemini"
+          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
+          : `${activeProviderConfig.baseUrl}/v1/models`;
+
+      if (provider === "ollama")
+        targetUrl = `${activeProviderConfig.baseUrl}/api/tags`;
+
+      // 2. Fetch with validation
+      const response = await fetch(targetUrl, { headers });
+
+      // Check if the response is actually JSON before parsing
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(
+          `Server returned non-JSON response (Status: ${response.status}). Check if the URL is correct.`,
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `HTTP Error ${response.status}: Failed to reach provider.`,
+        );
+      }
+
+      const data = await response.json();
+
+      // 3. Normalize models based on provider structure
+      let models: string[] = [];
+      if (provider === "ollama") {
+        models = data.models.map((m: any) => m.name);
+      } else {
+        // Handles OpenAI compatible and Gemini
+        models = data.data.map((m: any) => m.id);
+      }
+
+      set({ availableModels: models });
+
+      // Auto-select first model if none selected
       if (
         models.length > 0 &&
         (!get().model || !models.includes(get().model))
       ) {
         set({ model: models[0] });
       }
-    } catch (err) {
-      console.error(
-        "Could not fetch models for current provider settings.",
-        err,
-      );
-      set({ availableModels: [] });
+    } catch (err: any) {
+      console.error("Could not fetch models:", err);
+      set({
+        availableModels: [],
+        providerError: err.message || "Connection failed. Verify host address.",
+      });
+    } finally {
+      set({ isFetchingModels: false });
     }
   },
 
@@ -538,6 +571,81 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const updated = { ...currentSession, model, updatedAt: Date.now() };
         saveSession(updated).then(() => get().loadSessionsFromStorage());
       }
+    }
+  },
+
+  testProviderConnection: async (provider: ProviderType) => {
+    const { settings } = get();
+    const config = settings.providers[provider];
+
+    if (!config) return { success: false, message: "Configuration not found." };
+
+    // 1. URL Validation Guard
+    if (
+      provider !== "gemini" &&
+      (!config.baseUrl || config.baseUrl.trim() === "")
+    ) {
+      return { success: false, message: "Base URL is required." };
+    }
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      if (config.encryptedApiKey) {
+        const key = await decryptKey(config.encryptedApiKey);
+        if (key) headers["Authorization"] = `Bearer ${key}`;
+      }
+
+      const url =
+        provider === "ollama"
+          ? `${config.baseUrl}/api/tags`
+          : provider === "gemini"
+            ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
+            : `${config.baseUrl}/v1/models`;
+
+      const res = await fetch(url, { method: "GET", headers });
+
+      // 2. Validate Response Content Type (The critical fix)
+      const contentType = res.headers.get("content-type");
+      if (!res.ok) {
+        return {
+          success: false,
+          message: `HTTP ${res.status}: Could not connect to ${provider}.`,
+        };
+      }
+
+      if (!contentType || !contentType.includes("application/json")) {
+        return {
+          success: false,
+          message:
+            "Connection reached, but the server returned an invalid format (not JSON). Check your Base URL.",
+        };
+      }
+
+      // 3. Final verification: Ensure the JSON actually contains models
+      const data = await res.json();
+      const hasModels = provider === "ollama" ? !!data.models : !!data.data;
+
+      if (!hasModels) {
+        return {
+          success: false,
+          message:
+            "Connection successful, but no models found at this endpoint.",
+        };
+      }
+
+      return { success: true, message: "Handshake verified successfully." };
+    } catch (e: any) {
+      console.error("Test connection error:", e);
+      return {
+        success: false,
+        message:
+          e.message === "Failed to fetch"
+            ? "Network error: Verify the server is running and CORS is enabled."
+            : e.message,
+      };
     }
   },
 
