@@ -6,6 +6,7 @@ import {
   Settings,
   SlidersHorizontal,
   X,
+  Zap,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -44,25 +45,65 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onUpdateUserMessage,
   onRegenerateFromCheckpoint,
 }) => {
+  // Determine if the pipeline is waiting for the first tokens to land
+  const lastMessage =
+    messages.length > 0 ? messages[messages.length - 1] : null;
+  const showThinking =
+    isLoading &&
+    lastMessage &&
+    lastMessage.role === "assistant" &&
+    !lastMessage.content.trim();
+
   return (
     <main className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-200">
       <div className="max-w-3xl w-full mx-auto space-y-6 flex flex-col">
         {/* VIRTUALIZED CONVERSATION PIPELINE */}
-        {messages.map((msg, idx) => (
-          <ObservedMessageItem
-            key={idx}
-            msg={msg}
-            idx={idx}
-            isLoading={isLoading}
-            onUpdateUserMessage={onUpdateUserMessage}
-            onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
-          />
-        ))}
+        {messages.map((msg, idx) => {
+          // RULE: If an engine response has no text content yet, skip rendering its bubble entirely
+          if (msg.role === "assistant" && !msg.content.trim()) {
+            return null;
+          }
+
+          return (
+            <ObservedMessageItem
+              key={idx}
+              msg={msg}
+              idx={idx}
+              isLoading={isLoading}
+              onUpdateUserMessage={onUpdateUserMessage}
+              onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
+            />
+          );
+        })}
+
+        {/* INLINE THINKING STATE ANCHOR */}
+        {showThinking && <ThinkingSkeleton />}
+
         <div ref={messagesEndRef} />
       </div>
     </main>
   );
 };
+
+/* ================= THEMED THINKING ANIMATION COMPONENT ================= */
+const ThinkingSkeleton: React.FC = () => {
+  return (
+    <div className="w-full mr-auto bg-theme-panel/20 border border-theme-border/40 p-4 rounded-xl flex flex-col space-y-3 animate-pulse">
+      <div className="flex items-center gap-2 border-b border-theme-border/20 pb-2 select-none">
+        <Zap className="w-3 h-3 text-theme-accent animate-spin [animation-duration:3s]" />
+        <span className="text-[10px] font-bold tracking-wider uppercase text-theme-accent/70">
+          Local Engine is thinking...
+        </span>
+      </div>
+      <div className="space-y-2 py-1">
+        <div className="h-3 w-[85%] bg-theme-border/40 rounded" />
+        <div className="h-3 w-[60%] bg-theme-border/30 rounded" />
+        <div className="h-3 w-[40%] bg-theme-border/20 rounded" />
+      </div>
+    </div>
+  );
+};
+
 /* ================= SELF-CONTAINED OBSERVER NODE ================= */
 interface ObservedItemProps {
   msg: Message;
