@@ -1,19 +1,21 @@
 // src/components/ChatWindow.tsx
 import {
   Check,
+  ChevronDown,
   HelpCircle,
   Pencil,
   Settings,
   SlidersHorizontal,
   X,
-  Zap,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { LoadingDots } from "./LoadingDots";
 
 interface Message {
   role: string;
   content: string;
+  thinking?: string;
   isPinned?: boolean;
   isPruned?: boolean;
   temperature?: number;
@@ -45,14 +47,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onUpdateUserMessage,
   onRegenerateFromCheckpoint,
 }) => {
-  // Determine if the pipeline is waiting for the first tokens to land
-  const lastMessage =
-    messages.length > 0 ? messages[messages.length - 1] : null;
-  const showThinking =
-    isLoading &&
-    lastMessage &&
-    lastMessage.role === "assistant" &&
-    !lastMessage.content.trim();
 
   return (
     <main className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-200">
@@ -60,7 +54,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         {/* VIRTUALIZED CONVERSATION PIPELINE */}
         {messages.map((msg, idx) => {
           // RULE: If an engine response has no text content yet, skip rendering its bubble entirely
-          if (msg.role === "assistant" && !msg.content.trim()) {
+          if (msg.role === "assistant" && !msg.content.trim() && !msg.thinking) {
             return null;
           }
 
@@ -76,8 +70,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           );
         })}
 
-        {/* INLINE THINKING STATE ANCHOR */}
-        {showThinking && <ThinkingSkeleton />}
+        {/* Subtle Loading Placeholder */}
+        {isLoading && (() => {
+          const lastMsg = messages[messages.length - 1];
+          return lastMsg?.role === 'assistant' && !lastMsg.content?.trim() && !lastMsg.thinking?.trim();
+        })() && (
+          <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
+            <LoadingDots/>
+          </div>
+        )}
 
         <div ref={messagesEndRef} />
       </div>
@@ -85,24 +86,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   );
 };
 
-/* ================= THEMED THINKING ANIMATION COMPONENT ================= */
-const ThinkingSkeleton: React.FC = () => {
-  return (
-    <div className="w-full mr-auto bg-theme-panel/20 border border-theme-border/40 p-4 rounded-xl flex flex-col space-y-3 animate-pulse">
-      <div className="flex items-center gap-2 border-b border-theme-border/20 pb-2 select-none">
-        <Zap className="w-3 h-3 text-theme-accent animate-spin [animation-duration:3s]" />
-        <span className="text-[10px] font-bold tracking-wider uppercase text-theme-accent/70">
-          Local Engine is thinking...
-        </span>
-      </div>
-      <div className="space-y-2 py-1">
-        <div className="h-3 w-[85%] bg-theme-border/40 rounded" />
-        <div className="h-3 w-[60%] bg-theme-border/30 rounded" />
-        <div className="h-3 w-[40%] bg-theme-border/20 rounded" />
-      </div>
-    </div>
-  );
-};
 
 /* ================= SELF-CONTAINED OBSERVER NODE ================= */
 interface ObservedItemProps {
@@ -594,6 +577,27 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
         )
       ) : (
         <div className="prose prose-invert prose-sm max-w-none text-theme-text leading-relaxed text-left">
+          {/* THINKING BLOCK: Collapsible Dropdown with Active Status */}
+          {msg.thinking && (
+            <details
+              open={!msg.content || msg.content.trim().length === 0}
+              className="mb-4 border border-theme-border/30 rounded-lg bg-theme-panel/20 group/thinking"
+            >
+              <summary className="list-none flex items-center gap-2 px-3 py-1.5 cursor-pointer text-theme-muted hover:text-theme-accent transition-colors rounded-lg">
+                <span className="text-[9px] font-medium uppercase tracking-widest opacity-80 grow">
+                  Internal Reasoning
+                </span>
+                {isLoading && (!msg.content || msg.content.trim().length === 0) && (
+                  <LoadingDots className="mr-2" />
+                )}
+                <ChevronDown className="w-3 h-3 transition-transform group-open/thinking:rotate-180" />
+              </summary>
+              <div className="p-3 border-t border-theme-border/20 text-xs text-theme-muted italic font-mono bg-theme-bg/50">
+                <ReactMarkdown>{msg.thinking}</ReactMarkdown>
+              </div>
+            </details>
+          )}
+          {/* MAIN RESPONSE */}
           <ReactMarkdown>{msg.content || ""}</ReactMarkdown>
         </div>
       )}

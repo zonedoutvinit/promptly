@@ -205,17 +205,17 @@ const getInitialPersonas = (): SystemProfile[] => {
 // ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
 const compileTelemetryPayload = (
   messages: ChatMessage[],
-  sessionId: string | null,
-  customPersonas: SystemProfile[],
 ) => {
-  // 1. Core System Framework Baseline
-  const activePersona =
-    customPersonas.find((p) => p.id === sessionId) || DEFAULT_PERSONAS[0];
+  // 1. Unified Thinking System Framework
+  // Replacing persona-specific prompts with a structural directive for the model
   const systemContextFrame = [
-    { role: "system" as const, content: activePersona.prompt },
+    {
+      role: "system" as const,
+      content: "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints."
+    },
   ];
 
-  // 2. Pinned Context De-duplication Logic
+  // 2. Pinned Context De-duplication Logic (remains unchanged)
   const pinnedMessages = messages.filter(
     (msg) => msg.isPinned && !msg.isPruned,
   );
@@ -234,18 +234,18 @@ const compileTelemetryPayload = (
 
   const MAX_ALLOWED_PINS = 5;
   const compiledPinnedContext = Array.from(uniquePinnedMap.values())
-    .slice(-MAX_ALLOWED_PINS) // Keep only the 5 most recent unique pins
+    .slice(-MAX_ALLOWED_PINS)
     .map((msg) => ({
       role: "system" as const,
       content: `[STATIC ANCHOR CONTEXT - ORIGINAL ROLE: ${msg.role.toUpperCase()}]\n${msg.content}\n[END ANCHOR]`,
     }));
 
-  // 3. Fluid Conversational Extraction with Token Budget Guardrails
+  // 3. Fluid Conversational Extraction (remains unchanged)
   const conversationalHistory = messages.filter(
     (msg) => !msg.isPinned && !msg.isPruned,
   );
   const explicitHistoryTurnLimit = 8;
-  const MAX_CONVERSATIONAL_CHAR_LIMIT = 8000; // ~2000 tokens safe item bounding threshold
+  const MAX_CONVERSATIONAL_CHAR_LIMIT = 8000;
 
   const compiledHistoryContext = conversationalHistory
     .slice(-explicitHistoryTurnLimit)
@@ -254,18 +254,17 @@ const compileTelemetryPayload = (
       if (content.length > MAX_CONVERSATIONAL_CHAR_LIMIT) {
         const head = content.slice(0, 2500);
         const tail = content.slice(-2500);
-        const managedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated to defend context budget execution limits ...]\n\n${tail}`;
+        const managedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated ...]\n\n${tail}`;
         return { role, content: managedContent };
       }
       return { role, content };
     });
 
-  // 4. Dynamic Recency Behavioral Reminder Injections
-  // If our sliding conversation buffer is full, inject a reminder to maintain alignment
+  // 4. Dynamic Recency Behavioral Reminder
   if (compiledHistoryContext.length >= explicitHistoryTurnLimit) {
     compiledHistoryContext.splice(compiledHistoryContext.length - 1, 0, {
       role: "system" as const,
-      content: `[RECALL SYSTEM INSTRUCTION: Ensure responses comply exactly with the operational boundaries, technical rules, and constraints established in the initial persona architecture.]`,
+      content: `[RECALL: Continue analyzing your response with logical, step-by-step reasoning.]`,
     });
   }
 
@@ -763,7 +762,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isLoading,
       currentSessionId,
       settings,
-      customPersonas,
     } = get();
     if (!model || isLoading || !content.trim()) return;
 
@@ -841,11 +839,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
 
       // Centralized Telemetry Assembly Channel Execution
-      const compiledActiveContext = compileTelemetryPayload(
-        updatedMessagesWithUser,
-        sessionId,
-        customPersonas,
-      );
+      const compiledActiveContext = compileTelemetryPayload(updatedMessagesWithUser);
 
       const standardPayload = {
         model,
@@ -866,6 +860,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantTextAccumulator = "";
+      let assistantThinkingAccumulator = "";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -881,9 +876,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
           try {
             if (isOllama) {
               const parsedChunk = JSON.parse(trimmedLine);
+              // Track if we actually received data to update state
+              let hasUpdate = false;
               if (parsedChunk.message?.content) {
                 assistantTextAccumulator += parsedChunk.message.content;
+                hasUpdate = true;
               }
+              // Capture the thinking field independently
+              if (parsedChunk.message?.thinking) {
+                assistantThinkingAccumulator += parsedChunk.message.thinking;
+                hasUpdate = true;
+              }
+              if (!hasUpdate) continue;
             } else {
               if (trimmedLine.startsWith("data: ")) {
                 const rawJson = trimmedLine.replace(/^data:\s*/, "");
@@ -906,6 +910,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     currentHistory[currentHistory.length - 1] = {
                       ...currentHistory[currentHistory.length - 1],
                       content: assistantTextAccumulator,
+                      thinking: assistantThinkingAccumulator, // Update the new field
                       timestamp: Date.now(),
                     };
                   }
@@ -1010,7 +1015,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isLoading,
       currentSessionId,
       settings,
-      customPersonas,
     } = get();
     if (!model || isLoading || !currentSessionId) return;
 
@@ -1027,17 +1031,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Explicit closure lock for background checkpoint loop
     const sessionId = currentSessionId;
 
-    const compiledActiveContext = compileTelemetryPayload(
-      cleanHistory,
-      sessionId,
-      customPersonas,
-    );
+    const compiledActiveContext = compileTelemetryPayload(cleanHistory);
 
     const streamingHistory: ChatMessage[] = [
       ...cleanHistory,
       {
         role: "assistant" as const,
         content: "",
+        thinking: "",
         timestamp: Date.now(),
         isPinned: false,
         isPruned: false,
@@ -1068,9 +1069,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         "Content-Type": "application/json",
       };
       if (activeProviderConfig.encryptedApiKey) {
-        const activeKey = await decryptKey(
-          activeProviderConfig.encryptedApiKey,
-        );
+        const activeKey = await decryptKey(activeProviderConfig.encryptedApiKey);
         if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
       }
 
@@ -1119,6 +1118,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantTextAccumulator = "";
+      let assistantThinkingAccumulator = ""; // Added accumulator
 
       while (true) {
         const { value, done } = await reader.read();
@@ -1134,9 +1134,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           try {
             if (isOllama) {
               const parsedChunk = JSON.parse(trimmedLine);
+              let hasUpdate = false;
               if (parsedChunk.message?.content) {
                 assistantTextAccumulator += parsedChunk.message.content;
+                hasUpdate = true;
               }
+              if (parsedChunk.message?.thinking) {
+                assistantThinkingAccumulator += parsedChunk.message.thinking;
+                hasUpdate = true;
+              }
+              if (!hasUpdate) continue;
             } else {
               if (trimmedLine.startsWith("data: ")) {
                 const rawJson = trimmedLine.replace(/^data:\s*/, "");
@@ -1158,6 +1165,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     currentHistory[currentHistory.length - 1] = {
                       ...currentHistory[currentHistory.length - 1],
                       content: assistantTextAccumulator,
+                      thinking: assistantThinkingAccumulator, // Update state
                       timestamp: Date.now(),
                     };
                   }
@@ -1172,8 +1180,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
               const isCurrent = state.currentSessionId === sessionId;
               const updatedMessages = isCurrent
-                ? updatedSessions.find((s) => s.id === sessionId)?.messages ||
-                  state.messages
+                ? updatedSessions.find((s) => s.id === sessionId)?.messages || state.messages
                 : state.messages;
 
               return {
