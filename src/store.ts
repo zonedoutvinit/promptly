@@ -10,10 +10,7 @@ import {
 import { decryptKey, encryptKey } from "./utils/crypto";
 
 export type ProviderType =
-  | "ollama"
-  | "lm-studio"
-  | "openai-compatible"
-  | "gemini";
+  "ollama" | "lm-studio" | "openai-compatible" | "gemini";
 
 export interface ProviderConfig {
   baseUrl: string;
@@ -203,15 +200,14 @@ const getInitialPersonas = (): SystemProfile[] => {
 };
 
 // ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
-const compileTelemetryPayload = (
-  messages: ChatMessage[],
-) => {
+const compileTelemetryPayload = (messages: ChatMessage[]) => {
   // 1. Unified Thinking System Framework
   // Replacing persona-specific prompts with a structural directive for the model
   const systemContextFrame = [
     {
       role: "system" as const,
-      content: "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints."
+      content:
+        "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints.",
     },
   ];
 
@@ -756,13 +752,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const {
-      model,
-      messages,
-      isLoading,
-      currentSessionId,
-      settings,
-    } = get();
+    const { model, messages, isLoading, currentSessionId, settings } = get();
     if (!model || isLoading || !content.trim()) return;
 
     const provider = settings.currentProvider;
@@ -839,7 +829,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
 
       // Centralized Telemetry Assembly Channel Execution
-      const compiledActiveContext = compileTelemetryPayload(updatedMessagesWithUser);
+      const compiledActiveContext = compileTelemetryPayload(
+        updatedMessagesWithUser,
+      );
 
       const standardPayload = {
         model,
@@ -1009,13 +1001,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       presencePenalty: number;
     },
   ) => {
-    const {
-      model,
-      messages,
-      isLoading,
-      currentSessionId,
-      settings,
-    } = get();
+    const { model, messages, isLoading, currentSessionId, settings } = get();
     if (!model || isLoading || !currentSessionId) return;
 
     const provider = settings.currentProvider;
@@ -1069,7 +1055,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         "Content-Type": "application/json",
       };
       if (activeProviderConfig.encryptedApiKey) {
-        const activeKey = await decryptKey(activeProviderConfig.encryptedApiKey);
+        const activeKey = await decryptKey(
+          activeProviderConfig.encryptedApiKey,
+        );
         if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
       }
 
@@ -1180,7 +1168,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
               const isCurrent = state.currentSessionId === sessionId;
               const updatedMessages = isCurrent
-                ? updatedSessions.find((s) => s.id === sessionId)?.messages || state.messages
+                ? updatedSessions.find((s) => s.id === sessionId)?.messages ||
+                  state.messages
                 : state.messages;
 
               return {

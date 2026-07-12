@@ -47,14 +47,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onUpdateUserMessage,
   onRegenerateFromCheckpoint,
 }) => {
-
   return (
     <main className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-200">
       <div className="max-w-3xl w-full mx-auto space-y-6 flex flex-col">
         {/* VIRTUALIZED CONVERSATION PIPELINE */}
         {messages.map((msg, idx) => {
           // RULE: If an engine response has no text content yet, skip rendering its bubble entirely
-          if (msg.role === "assistant" && !msg.content.trim() && !msg.thinking) {
+          if (
+            msg.role === "assistant" &&
+            !msg.content.trim() &&
+            !msg.thinking
+          ) {
             return null;
           }
 
@@ -71,21 +74,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         })}
 
         {/* Subtle Loading Placeholder */}
-        {isLoading && (() => {
-          const lastMsg = messages[messages.length - 1];
-          return lastMsg?.role === 'assistant' && !lastMsg.content?.trim() && !lastMsg.thinking?.trim();
-        })() && (
-          <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
-            <LoadingDots/>
-          </div>
-        )}
+        {isLoading &&
+          (() => {
+            const lastMsg = messages[messages.length - 1];
+            return (
+              lastMsg?.role === "assistant" &&
+              !lastMsg.content?.trim() &&
+              !lastMsg.thinking?.trim()
+            );
+          })() && (
+            <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
+              <LoadingDots />
+            </div>
+          )}
 
         <div ref={messagesEndRef} />
       </div>
     </main>
   );
 };
-
 
 /* ================= SELF-CONTAINED OBSERVER NODE ================= */
 interface ObservedItemProps {
@@ -587,9 +594,10 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                 <span className="text-[9px] font-medium uppercase tracking-widest opacity-80 grow">
                   Internal Reasoning
                 </span>
-                {isLoading && (!msg.content || msg.content.trim().length === 0) && (
-                  <LoadingDots className="mr-2" />
-                )}
+                {isLoading &&
+                  (!msg.content || msg.content.trim().length === 0) && (
+                    <LoadingDots className="mr-2" />
+                  )}
                 <ChevronDown className="w-3 h-3 transition-transform group-open/thinking:rotate-180" />
               </summary>
               <div className="p-3 border-t border-theme-border/20 text-xs text-theme-muted italic font-mono bg-theme-bg/50">
