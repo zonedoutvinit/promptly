@@ -1,6 +1,6 @@
 {
   "name": "promptly",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "A cross-platform desktop utility offering a unified multi-model interface for seamless interaction and comparison across local and cloud-based Large Language Models (LLMs).",
   "main": "main.js",
   "repository": {
