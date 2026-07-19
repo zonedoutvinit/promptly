@@ -8,6 +8,16 @@ import {
   ChatMessage,
 } from "./utils/db";
 import { decryptKey, encryptKey } from "./utils/crypto";
+import { searchWeb } from "./service/webSearch";
+
+export type SearchStatus = "idle" | "searching" | "completed" | "error";
+
+export interface Message {
+  id: string;
+  role: "system" | "user" | "assistant";
+  content: string;
+  isPinned?: boolean;
+}
 
 export type ProviderType =
   "ollama" | "lm-studio" | "openai-compatible" | "gemini";
@@ -87,6 +97,16 @@ interface ChatState {
   testProviderConnection: (
     provider: ProviderType,
   ) => Promise<{ success: boolean; message: string }>;
+
+  // Search Config State
+  search: {
+    enabled: boolean;
+    maxResults: number;
+    status: SearchStatus;
+  };
+  // Actions
+  setSearchEnabled: (enabled: boolean) => void;
+  setSearchMaxResults: (count: number) => void;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -200,7 +220,10 @@ const getInitialPersonas = (): SystemProfile[] => {
 };
 
 // ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
-const compileTelemetryPayload = (messages: ChatMessage[]) => {
+const compileTelemetryPayload = (
+  messages: ChatMessage[],
+  webContext?: string,
+) => {
   // 1. Unified Thinking System Framework
   // Replacing persona-specific prompts with a structural directive for the model
   const systemContextFrame = [
@@ -210,6 +233,16 @@ const compileTelemetryPayload = (messages: ChatMessage[]) => {
         "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints.",
     },
   ];
+
+  // --- NEW WEB SEARCH CONTEXT PACKAGING ---
+  const webSearchFrame = webContext
+    ? [
+        {
+          role: "system" as const,
+          content: webContext,
+        },
+      ]
+    : [];
 
   // 2. Pinned Context De-duplication Logic (remains unchanged)
   const pinnedMessages = messages.filter(
@@ -265,8 +298,10 @@ const compileTelemetryPayload = (messages: ChatMessage[]) => {
   }
 
   // 5. Build Unified Execution Payload Array
+  // Order: System Prompt -> Web Search Context -> Pinned Messages -> Conversation History
   return [
     ...systemContextFrame,
+    ...webSearchFrame,
     ...compiledPinnedContext,
     ...compiledHistoryContext,
   ];
@@ -279,6 +314,7 @@ interface StreamingConfig {
   get: () => any;
   set: (fn: (state: any) => any) => void;
   overrides?: Record<string, any>;
+  webContext?: string;
 }
 
 const executeStreamingInference = async ({
@@ -288,6 +324,7 @@ const executeStreamingInference = async ({
   get,
   set,
   overrides,
+  webContext,
 }: StreamingConfig) => {
   const { model, settings } = get();
   const provider = settings.currentProvider;
@@ -314,7 +351,7 @@ const executeStreamingInference = async ({
     // 2. Assemble Provider-Specific Payloads
     const payload: Record<string, any> = {
       model,
-      messages: compileTelemetryPayload(historyForTelemetry),
+      messages: compileTelemetryPayload(historyForTelemetry, webContext),
       stream: true,
     };
 
@@ -396,6 +433,8 @@ const executeStreamingInference = async ({
                   content: textAccumulator,
                   thinking: thinkingAccumulator,
                   timestamp: Date.now(),
+                  isPinned: false,
+                  isPruned: false,
                 };
               }
               return { ...s, messages: history, updatedAt: Date.now() };
@@ -443,6 +482,28 @@ const executeStreamingInference = async ({
   }
 };
 
+const formatSearchResults = (
+  results: Array<{ title: string; snippet: string; url: string }>,
+): string => {
+  let contextString = "You have access to recent web search results.\n";
+  contextString += "Use them only if they help answer the user's request.\n";
+  contextString +=
+    "If they conflict with your internal knowledge, mention the uncertainty.\n\n";
+  contextString += "Web Search Results\n\n";
+
+  results.forEach((res, index) => {
+    contextString += `Result ${index + 1}\n\n`;
+    contextString += `Title: ${res.title}\n`;
+    contextString += `Summary: ${res.snippet}\n`;
+    contextString += `URL: ${res.url}\n`;
+    if (index < results.length - 1) {
+      contextString += "\n-------------------\n\n";
+    }
+  });
+
+  return contextString;
+};
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
@@ -456,6 +517,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abortControllers: {},
   isFetchingModels: false,
   providerError: null,
+
+  search: {
+    enabled: false,
+    maxResults: 3,
+    status: "idle",
+  },
+
+  setSearchEnabled: (enabled) =>
+    set((state) => ({ search: { ...state.search, enabled } })),
+
+  setSearchMaxResults: (maxResults) =>
+    set((state) => ({ search: { ...state.search, maxResults } })),
 
   stopGeneration: (id?: string) => {
     const { abortControllers, currentSessionId, sessions } = get();
@@ -923,7 +996,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const { model, messages, isLoading, currentSessionId } = get();
+    const { model, messages, isLoading, currentSessionId, search } = get();
     if (!model || isLoading || !content.trim()) return;
 
     const sessionId = currentSessionId || crypto.randomUUID();
@@ -976,13 +1049,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
       abortControllers: { ...state.abortControllers, [sessionId]: controller },
     }));
 
-    // Hand off execution cleanly
+    // --- NEW WEB SEARCH INTERCEPTION ---
+    let injectedWebContext: string | undefined = undefined;
+
+    if (search?.enabled) {
+      set((state) => ({ search: { ...state.search, status: "searching" } }));
+
+      try {
+        // Import searchWeb service at the top of your file
+        const results = await searchWeb(content, search.maxResults);
+
+        if (results && results.length > 0) {
+          injectedWebContext = formatSearchResults(results);
+          set((state) => ({
+            search: { ...state.search, status: "completed" },
+          }));
+        } else {
+          set((state) => ({ search: { ...state.search, status: "idle" } }));
+        }
+      } catch (searchError) {
+        // Soft fail: log error but guarantee prompt inference remains unblocked
+        console.error(
+          "Context Injection RAG failed, proceeding gracefully:",
+          searchError,
+        );
+        set((state) => ({ search: { ...state.search, status: "error" } }));
+      }
+    }
+
+    // Hand off execution cleanly, adding webContext to the parameters
     await executeStreamingInference({
       sessionId,
       historyForTelemetry: updatedMessagesWithUser,
       controller,
       get,
       set,
+      webContext: injectedWebContext,
     });
   },
 

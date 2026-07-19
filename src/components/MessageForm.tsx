@@ -11,7 +11,9 @@ import {
   BrainCircuit,
   Terminal as DefaultIcon,
   Square,
-  Send, // Added for smaller execute look
+  Send,
+  Globe, // Added for Web Search control toggle UI visualization
+  Loader2, // Added for continuous inline execution tracking state
 } from "lucide-react";
 
 interface MessageFormProps {
@@ -36,7 +38,9 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   isLoading,
   onSubmit,
 }) => {
-  const { messages, customPersonas, stopGeneration } = useChatStore();
+  // Destructured the search configuration slice variables from your updated Zustand state
+  const { messages, customPersonas, stopGeneration, search, setSearchEnabled } =
+    useChatStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -110,6 +114,9 @@ export const MessageForm: React.FC<MessageFormProps> = ({
     }
   };
 
+  const isExpanded =
+    input.length > 0 && (input.includes("\n") || input.trim().length > 0);
+
   return (
     <div className="space-y-2 w-full bg-theme-bg">
       {/* System Personas Tray Dock */}
@@ -168,44 +175,137 @@ export const MessageForm: React.FC<MessageFormProps> = ({
         </div>
       )}
 
+      {/* RAG SEARCH STATUS NOTIFIER BANNER */}
+      {search?.enabled && search.status !== "idle" && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-theme-panel/30 border border-theme-border/40 rounded-lg text-xs font-mono transition-all animate-fade-in">
+          {search.status === "searching" && (
+            <div className="flex items-center gap-2 text-theme-accent">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Searching web for real-time sources...</span>
+            </div>
+          )}
+          {search.status === "completed" && (
+            <div className="flex items-center gap-2 text-emerald-500">
+              <span className="font-bold">✓</span>
+              <span>
+                Found {search.maxResults} matching sources. Injecting context...
+              </span>
+            </div>
+          )}
+          {search.status === "error" && (
+            <div className="flex items-center gap-2 text-amber-500">
+              <span className="font-bold">⚠️</span>
+              <span>
+                Web search failed. Proceeding with fallback internal knowledge
+                base...
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* INPUT CONTROLLER CONTAINER */}
       <form onSubmit={onSubmit} className="w-full">
-        <div className="relative flex items-end bg-theme-panel border border-theme-border rounded-xl focus-within:border-theme-accent/60 transition p-1.5">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isLoading
-                ? "Engine compiling..."
-                : "Enter Prompt... (Ctrl+Enter to execute)"
-            }
-            disabled={isLoading}
-            className="w-full bg-transparent max-h-40 resize-none pl-3 pr-12 py-2 text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono leading-relaxed"
-          />
-
-          {/* Inline Action Button */}
-          <div className="absolute right-2 bottom-2">
-            <button
-              type={isLoading ? "button" : "submit"}
-              onClick={isLoading ? () => stopGeneration() : undefined}
-              disabled={!isLoading && input.trim().length === 0}
-              title={isLoading ? "Stop Execution" : "Send Prompt"}
-              className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${
+        <div
+          className={`flex bg-theme-panel border border-theme-border rounded-2xl focus-within:border-theme-accent/60 transition-all duration-200 p-2 ${
+            isExpanded
+              ? "flex-col min-h-27.5 justify-between"
+              : "flex-row items-center gap-2"
+          }`}
+        >
+          {/* Top/Center Workspace Row: Contains Textarea */}
+          <div className={`w-full ${isExpanded ? "mb-2" : ""}`}>
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
                 isLoading
-                  ? "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
-                  : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
+                  ? "Engine compiling..."
+                  : "Enter Prompt... (Ctrl+Enter to execute)"
+              }
+              disabled={isLoading}
+              className={`w-full bg-transparent max-h-48 resize-none text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono leading-relaxed ${
+                isExpanded ? "pt-1.5 px-3 pb-0" : "py-1 px-1"
               }`}
-            >
-              {isLoading ? (
-                <Square className="w-3.5 h-3.5 fill-current" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </button>
+            />
           </div>
+
+          {/* Action Button Controls */}
+          {isExpanded ? (
+            /* --- ACTION BAR VIEW (Stacked Below) --- */
+            <div className="flex items-center justify-between pt-1 px-1 w-full border-t border-theme-border/20">
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => setSearchEnabled(!search.enabled)}
+                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 ${
+                  search.enabled
+                    ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
+                    : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
+                }`}
+              >
+                <Globe className="w-4 h-4" />
+              </button>
+
+              <button
+                type={isLoading ? "button" : "submit"}
+                onClick={isLoading ? () => stopGeneration() : undefined}
+                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                  isLoading
+                    ? "bg-red-500/10 text-red-500"
+                    : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
+                }`}
+              >
+                {isLoading ? (
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          ) : (
+            /* --- INLINE VIEW (Single Baseline Row) --- */
+            <>
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => setSearchEnabled(!search.enabled)}
+                title={
+                  search.enabled
+                    ? "Disable Web Search Integration"
+                    : "Enable Web Search Integration"
+                }
+                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed order-first shrink-0 ml-0.5 ${
+                  search.enabled
+                    ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
+                    : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
+                }`}
+              >
+                <Globe className="w-4 h-4" />
+              </button>
+
+              <button
+                type={isLoading ? "button" : "submit"}
+                onClick={isLoading ? () => stopGeneration() : undefined}
+                disabled={!isLoading && input.trim().length === 0}
+                title={isLoading ? "Stop Execution" : "Send Prompt"}
+                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed shrink-0 mr-0.5 ${
+                  isLoading
+                    ? "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
+                    : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
+                }`}
+              >
+                {isLoading ? (
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </button>
+            </>
+          )}
         </div>
       </form>
     </div>
