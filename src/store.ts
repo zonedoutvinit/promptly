@@ -918,7 +918,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await deleteSessionFromDB(id);
     await get().loadSessionsFromStorage();
     if (get().currentSessionId === id) {
-      set({ currentSessionId: null, messages: [] });
+      set(() => ({
+        currentSessionId: null,
+        messages: [],
+        search: {
+          enabled: false,
+          maxResults: 3,
+          status: "idle",
+        },
+      }));
     }
   },
 

@@ -18,7 +18,7 @@ const normalizeQuery = (query: string): string => {
 
 /**
  * Service to execute web searches using native browser fetch and DOM extraction.
- * Bypasses Node-native dependencies entirely to eliminate bundler polyfill compilation errors.
+ * Proxied via a public CORS pipeline to safely allow browser-side web scraping.
  */
 export async function searchWeb(
   query: string,
@@ -34,15 +34,23 @@ export async function searchWeb(
   }
 
   try {
-    // 2. Fetch using DuckDuckGo's standard non-JS fallback HTML layout engine
-    const targetUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    // 2. Wrap DuckDuckGo non-JS fallback URL in a reliable public CORS proxy
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const targetUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(ddgUrl)}`;
+
     const response = await fetch(targetUrl);
 
     if (!response.ok) {
-      throw new Error(`DuckDuckGo lookup failure: Status ${response.status}`);
+      throw new Error(`CORS Proxy lookup failure: Status ${response.status}`);
     }
 
-    const rawHtmlText = await response.text();
+    // allorigins wraps the payload inside a JSON object: { contents: "<html>..." }
+    const jsonWrapper = await response.json();
+    const rawHtmlText = jsonWrapper.contents;
+
+    if (!rawHtmlText) {
+      throw new Error("No payload contents extracted from proxy wrapper.");
+    }
 
     // 3. Parse content structure using the browser's native DOM Parser assembly
     const parser = new DOMParser();
