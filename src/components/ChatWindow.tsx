@@ -47,14 +47,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onUpdateUserMessage,
   onRegenerateFromCheckpoint,
 }) => {
-
   return (
     <main className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-200">
       <div className="max-w-3xl w-full mx-auto space-y-6 flex flex-col">
         {/* VIRTUALIZED CONVERSATION PIPELINE */}
         {messages.map((msg, idx) => {
           // RULE: If an engine response has no text content yet, skip rendering its bubble entirely
-          if (msg.role === "assistant" && !msg.content.trim() && !msg.thinking) {
+          if (
+            msg.role === "assistant" &&
+            !msg.content.trim() &&
+            !msg.thinking
+          ) {
             return null;
           }
 
@@ -71,21 +74,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         })}
 
         {/* Subtle Loading Placeholder */}
-        {isLoading && (() => {
-          const lastMsg = messages[messages.length - 1];
-          return lastMsg?.role === 'assistant' && !lastMsg.content?.trim() && !lastMsg.thinking?.trim();
-        })() && (
-          <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
-            <LoadingDots/>
-          </div>
-        )}
+        {isLoading &&
+          (() => {
+            const lastMsg = messages[messages.length - 1];
+            return (
+              lastMsg?.role === "assistant" &&
+              !lastMsg.content?.trim() &&
+              !lastMsg.thinking?.trim()
+            );
+          })() && (
+            <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
+              <LoadingDots />
+            </div>
+          )}
 
         <div ref={messagesEndRef} />
       </div>
     </main>
   );
 };
-
 
 /* ================= SELF-CONTAINED OBSERVER NODE ================= */
 interface ObservedItemProps {
@@ -266,7 +273,7 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`group flex flex-col p-4 rounded-xl border transition-all duration-200 relative ${
+      className={`group flex flex-col p-4 rounded-xl border transition-all duration-200 relative min-w-0 overflow-hidden ${
         isUser
           ? "w-[60%] ml-auto bg-theme-panel border-theme-border text-theme-text"
           : `w-full mr-auto bg-theme-panel/40 border-theme-border/60 text-theme-text ${msg.isPruned ? "opacity-40" : ""}`
@@ -571,12 +578,12 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
             </div>
           </div>
         ) : (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-theme-text">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-theme-text break-all">
             {msg.content}
           </p>
         )
       ) : (
-        <div className="prose prose-invert prose-sm max-w-none text-theme-text leading-relaxed text-left">
+        <div className="prose prose-invert prose-sm max-w-none text-theme-text leading-relaxed text-left w-full overflow-hidden break-all">
           {/* THINKING BLOCK: Collapsible Dropdown with Active Status */}
           {msg.thinking && (
             <details
@@ -587,18 +594,70 @@ const ObservedMessageItem: React.FC<ObservedItemProps> = ({
                 <span className="text-[9px] font-medium uppercase tracking-widest opacity-80 grow">
                   Internal Reasoning
                 </span>
-                {isLoading && (!msg.content || msg.content.trim().length === 0) && (
-                  <LoadingDots className="mr-2" />
-                )}
+                {isLoading &&
+                  (!msg.content || msg.content.trim().length === 0) && (
+                    <LoadingDots className="mr-2" />
+                  )}
                 <ChevronDown className="w-3 h-3 transition-transform group-open/thinking:rotate-180" />
               </summary>
-              <div className="p-3 border-t border-theme-border/20 text-xs text-theme-muted italic font-mono bg-theme-bg/50">
-                <ReactMarkdown>{msg.thinking}</ReactMarkdown>
+              <div className="p-3 border-t border-theme-border/20 text-xs text-theme-muted italic font-mono bg-theme-bg/50 break-all">
+                <ReactMarkdown
+                  components={{
+                    p: ({ children }) => (
+                      <p className="wrap-break-word [word-break:normal]">
+                        {children}
+                      </p>
+                    ),
+                    li: ({ children }) => (
+                      <li className="wrap-break-word [word-break:normal]">
+                        {children}
+                      </li>
+                    ),
+                  }}
+                >
+                  {msg.thinking}
+                </ReactMarkdown>
               </div>
             </details>
           )}
-          {/* MAIN RESPONSE */}
-          <ReactMarkdown>{msg.content || ""}</ReactMarkdown>
+
+          {/* MAIN RESPONSE WITH CUSTOM RENDERERS FOR STRICT WRAPPING */}
+          <ReactMarkdown
+            components={{
+              p: ({ children }) => (
+                <p className="wrap-break-word [word-break:normal] m-0">
+                  {children}
+                </p>
+              ),
+              li: ({ children }) => (
+                <li className="wrap-break-word [word-break:normal]">
+                  {children}
+                </li>
+              ),
+              ol: ({ children }) => (
+                <ol className="wrap-break-word [word-break:normal] list-decimal pl-4">
+                  {children}
+                </ol>
+              ),
+              ul: ({ children }) => (
+                <ul className="wrap-break-word [word-break:normal] list-disc pl-4">
+                  {children}
+                </ul>
+              ),
+              pre: ({ children }) => (
+                <pre className="whitespace-pre-wrap wrap-break-word [word-break:normal] w-full overflow-hidden bg-theme-bg/60 p-3 rounded-lg border border-theme-border/40 my-2">
+                  {children}
+                </pre>
+              ),
+              code: ({ children }) => (
+                <code className="wrap-break-word whitespace-pre-wrap [word-break:normal] bg-theme-bg/80 px-1 py-0.5 rounded font-mono text-xs text-theme-accent">
+                  {children}
+                </code>
+              ),
+            }}
+          >
+            {msg.content || ""}
+          </ReactMarkdown>
         </div>
       )}
     </div>
