@@ -8,12 +8,19 @@ import {
   ChatMessage,
 } from "./utils/db";
 import { decryptKey, encryptKey } from "./utils/crypto";
+import { searchWeb } from "./service/webSearch";
+
+export type SearchStatus = "idle" | "searching" | "completed" | "error";
+
+export interface Message {
+  id: string;
+  role: "system" | "user" | "assistant";
+  content: string;
+  isPinned?: boolean;
+}
 
 export type ProviderType =
-  | "ollama"
-  | "lm-studio"
-  | "openai-compatible"
-  | "gemini";
+  "ollama" | "lm-studio" | "openai-compatible" | "gemini";
 
 export interface ProviderConfig {
   baseUrl: string;
@@ -84,6 +91,22 @@ interface ChatState {
       presencePenalty: number;
     },
   ) => Promise<void>;
+
+  isFetchingModels: boolean;
+  providerError: string | null;
+  testProviderConnection: (
+    provider: ProviderType,
+  ) => Promise<{ success: boolean; message: string }>;
+
+  // Search Config State
+  search: {
+    enabled: boolean;
+    maxResults: number;
+    status: SearchStatus;
+  };
+  // Actions
+  setSearchEnabled: (enabled: boolean) => void;
+  setSearchMaxResults: (count: number) => void;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -199,17 +222,29 @@ const getInitialPersonas = (): SystemProfile[] => {
 // ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
 const compileTelemetryPayload = (
   messages: ChatMessage[],
-  sessionId: string | null,
-  customPersonas: SystemProfile[],
+  webContext?: string,
 ) => {
-  // 1. Core System Framework Baseline
-  const activePersona =
-    customPersonas.find((p) => p.id === sessionId) || DEFAULT_PERSONAS[0];
+  // 1. Unified Thinking System Framework
+  // Replacing persona-specific prompts with a structural directive for the model
   const systemContextFrame = [
-    { role: "system" as const, content: activePersona.prompt },
+    {
+      role: "system" as const,
+      content:
+        "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints.",
+    },
   ];
 
-  // 2. Pinned Context De-duplication Logic
+  // --- NEW WEB SEARCH CONTEXT PACKAGING ---
+  const webSearchFrame = webContext
+    ? [
+        {
+          role: "system" as const,
+          content: webContext,
+        },
+      ]
+    : [];
+
+  // 2. Pinned Context De-duplication Logic (remains unchanged)
   const pinnedMessages = messages.filter(
     (msg) => msg.isPinned && !msg.isPruned,
   );
@@ -228,18 +263,18 @@ const compileTelemetryPayload = (
 
   const MAX_ALLOWED_PINS = 5;
   const compiledPinnedContext = Array.from(uniquePinnedMap.values())
-    .slice(-MAX_ALLOWED_PINS) // Keep only the 5 most recent unique pins
+    .slice(-MAX_ALLOWED_PINS)
     .map((msg) => ({
       role: "system" as const,
       content: `[STATIC ANCHOR CONTEXT - ORIGINAL ROLE: ${msg.role.toUpperCase()}]\n${msg.content}\n[END ANCHOR]`,
     }));
 
-  // 3. Fluid Conversational Extraction with Token Budget Guardrails
+  // 3. Fluid Conversational Extraction (remains unchanged)
   const conversationalHistory = messages.filter(
     (msg) => !msg.isPinned && !msg.isPruned,
   );
   const explicitHistoryTurnLimit = 8;
-  const MAX_CONVERSATIONAL_CHAR_LIMIT = 8000; // ~2000 tokens safe item bounding threshold
+  const MAX_CONVERSATIONAL_CHAR_LIMIT = 8000;
 
   const compiledHistoryContext = conversationalHistory
     .slice(-explicitHistoryTurnLimit)
@@ -248,27 +283,225 @@ const compileTelemetryPayload = (
       if (content.length > MAX_CONVERSATIONAL_CHAR_LIMIT) {
         const head = content.slice(0, 2500);
         const tail = content.slice(-2500);
-        const managedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated to defend context budget execution limits ...]\n\n${tail}`;
+        const managedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated ...]\n\n${tail}`;
         return { role, content: managedContent };
       }
       return { role, content };
     });
 
-  // 4. Dynamic Recency Behavioral Reminder Injections
-  // If our sliding conversation buffer is full, inject a reminder to maintain alignment
+  // 4. Dynamic Recency Behavioral Reminder
   if (compiledHistoryContext.length >= explicitHistoryTurnLimit) {
     compiledHistoryContext.splice(compiledHistoryContext.length - 1, 0, {
       role: "system" as const,
-      content: `[RECALL SYSTEM INSTRUCTION: Ensure responses comply exactly with the operational boundaries, technical rules, and constraints established in the initial persona architecture.]`,
+      content: `[RECALL: Continue analyzing your response with logical, step-by-step reasoning.]`,
     });
   }
 
   // 5. Build Unified Execution Payload Array
+  // Order: System Prompt -> Web Search Context -> Pinned Messages -> Conversation History
   return [
     ...systemContextFrame,
+    ...webSearchFrame,
     ...compiledPinnedContext,
     ...compiledHistoryContext,
   ];
+};
+
+interface StreamingConfig {
+  sessionId: string;
+  historyForTelemetry: ChatMessage[];
+  controller: AbortController;
+  get: () => any;
+  set: (fn: (state: any) => any) => void;
+  overrides?: Record<string, any>;
+  webContext?: string;
+}
+
+const executeStreamingInference = async ({
+  sessionId,
+  historyForTelemetry,
+  controller,
+  get,
+  set,
+  overrides,
+  webContext,
+}: StreamingConfig) => {
+  const { model, settings } = get();
+  const provider = settings.currentProvider;
+  const config = settings.providers[provider];
+
+  try {
+    // 1. Setup Request Authorization & Routing
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (config.encryptedApiKey) {
+      const activeKey = await decryptKey(config.encryptedApiKey);
+      if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
+    }
+
+    const isOllama = provider === "ollama";
+    const isGemini = provider === "gemini";
+    const targetUrl = isOllama
+      ? `${config.baseUrl}/api/chat`
+      : isGemini
+        ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
+        : `${config.baseUrl}/v1/chat/completions`;
+
+    // 2. Assemble Provider-Specific Payloads
+    const payload: Record<string, any> = {
+      model,
+      messages: compileTelemetryPayload(historyForTelemetry, webContext),
+      stream: true,
+    };
+
+    if (overrides) {
+      if (isOllama) {
+        payload.options = {
+          temperature: overrides.temperature,
+          top_p: overrides.topP,
+          frequency_penalty: overrides.frequencyPenalty,
+          presence_penalty: overrides.presencePenalty,
+        };
+      } else {
+        payload.temperature = overrides.temperature;
+        payload.top_p = overrides.topP;
+        if (!isGemini) {
+          payload.frequency_penalty = overrides.frequencyPenalty;
+          payload.presence_penalty = overrides.presencePenalty;
+        }
+      }
+    }
+
+    const response = await fetch(targetUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok || !response.body)
+      throw new Error("Engine generation failure");
+
+    // 3. Process Stream Reader Loop
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let textAccumulator = "";
+    let thinkingAccumulator = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const lines = decoder.decode(value, { stream: true }).split("\n");
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        try {
+          let hasUpdate = false;
+          if (isOllama) {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.message?.content) {
+              textAccumulator += parsed.message.content;
+              hasUpdate = true;
+            }
+            if (parsed.message?.thinking) {
+              thinkingAccumulator += parsed.message.thinking;
+              hasUpdate = true;
+            }
+            if (!hasUpdate) continue;
+          } else {
+            if (!trimmed.startsWith("data: ")) continue;
+            const rawJson = trimmed.replace(/^data:\s*/, "");
+            if (rawJson === "[DONE]") continue;
+
+            const contentChunk =
+              JSON.parse(rawJson).choices?.[0]?.delta?.content;
+            if (contentChunk) textAccumulator += contentChunk;
+          }
+
+          // Centralized reactive state projection
+          set((state) => {
+            const updatedSessions = state.sessions.map((s: ChatSession) => {
+              if (s.id !== sessionId) return s;
+              const history = [...s.messages];
+              if (history.length > 0) {
+                history[history.length - 1] = {
+                  ...history[history.length - 1],
+                  content: textAccumulator,
+                  thinking: thinkingAccumulator,
+                  timestamp: Date.now(),
+                  isPinned: false,
+                  isPruned: false,
+                };
+              }
+              return { ...s, messages: history, updatedAt: Date.now() };
+            });
+
+            return {
+              sessions: updatedSessions,
+              messages:
+                state.currentSessionId === sessionId
+                  ? updatedSessions.find((s: ChatSession) => s.id === sessionId)
+                      ?.messages || state.messages
+                  : state.messages,
+            };
+          });
+        } catch {
+          /* Silent resilience for partial chunks */
+        }
+      }
+    }
+
+    // 4. Persistence Termination Sync
+    const matchedSession = get().sessions.find(
+      (s: ChatSession) => s.id === sessionId,
+    );
+    if (matchedSession) {
+      await saveSession({ ...matchedSession, updatedAt: Date.now() });
+      await get().loadSessionsFromStorage();
+    }
+  } catch (error: any) {
+    console.log(
+      error.name === "AbortError"
+        ? "Stream connection client terminated."
+        : `Pipeline failure: ${error}`,
+    );
+  } finally {
+    // 5. Atomic Global Cleanup Guarantee
+    set((state) => {
+      const controllers = { ...state.abortControllers };
+      delete controllers[sessionId];
+      return {
+        abortControllers: controllers,
+        ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
+      };
+    });
+  }
+};
+
+const formatSearchResults = (
+  results: Array<{ title: string; snippet: string; url: string }>,
+): string => {
+  let contextString = "You have access to recent web search results.\n";
+  contextString += "Use them only if they help answer the user's request.\n";
+  contextString +=
+    "If they conflict with your internal knowledge, mention the uncertainty.\n\n";
+  contextString += "Web Search Results\n\n";
+
+  results.forEach((res, index) => {
+    contextString += `Result ${index + 1}\n\n`;
+    contextString += `Title: ${res.title}\n`;
+    contextString += `Summary: ${res.snippet}\n`;
+    contextString += `URL: ${res.url}\n`;
+    if (index < results.length - 1) {
+      contextString += "\n-------------------\n\n";
+    }
+  });
+
+  return contextString;
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -282,6 +515,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   theme: getInitialTheme(),
   customPersonas: getInitialPersonas(),
   abortControllers: {},
+  isFetchingModels: false,
+  providerError: null,
+
+  search: {
+    enabled: false,
+    maxResults: 3,
+    status: "idle",
+  },
+
+  setSearchEnabled: (enabled) =>
+    set((state) => ({ search: { ...state.search, enabled } })),
+
+  setSearchMaxResults: (maxResults) =>
+    set((state) => ({ search: { ...state.search, maxResults } })),
 
   stopGeneration: (id?: string) => {
     const { abortControllers, currentSessionId, sessions } = get();
@@ -338,7 +585,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       "promptly_engine_settings",
       JSON.stringify(updatedSettings),
     );
-    set({ settings: updatedSettings, availableModels: [], model: "" });
+
+    // Clear error and reset selections cleanly
+    set({
+      settings: updatedSettings,
+      availableModels: [],
+      model: "",
+      providerError: null,
+    });
 
     await get().fetchModels();
   },
@@ -463,69 +717,87 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const provider = settings.currentProvider;
     const activeProviderConfig = settings.providers[provider];
 
+    // 1. Guard clause: Don't fetch if URL is missing for non-Gemini providers
+    if (
+      provider !== "gemini" &&
+      (!activeProviderConfig?.baseUrl ||
+        activeProviderConfig.baseUrl.trim() === "")
+    ) {
+      set({
+        availableModels: [],
+        providerError: "Base URL is required for this provider.",
+      });
+      return;
+    }
+
+    set({ isFetchingModels: true, providerError: null });
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
 
-    let targetUrl =
-      provider === "gemini"
-        ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
-        : `${activeProviderConfig.baseUrl}/v1/models`;
-
-    if (activeProviderConfig.encryptedApiKey) {
-      const activeKey = await decryptKey(activeProviderConfig.encryptedApiKey);
-      if (activeKey) {
-        headers["Authorization"] = `Bearer ${activeKey}`;
-      }
-    }
-
     try {
-      if (provider === "ollama") {
-        targetUrl = `${activeProviderConfig.baseUrl}/api/tags`;
-        const response = await fetch(targetUrl, { headers });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        const models = data.models.map((m: any) => m.name);
-        set({ availableModels: models });
-      } else if (provider === "gemini") {
-        const targetGeminiModels = ["gemini-2.5-flash", "gemini-2.5-pro"];
-        try {
-          const response = await fetch(targetUrl, { headers });
-          if (!response.ok) throw new Error();
-          const data = await response.json();
-          const fetchedModels = data.data.map((m: any) => m.id);
-          const filtered = targetGeminiModels.filter((m) =>
-            fetchedModels.includes(m),
-          );
-
-          set({
-            availableModels:
-              filtered.length > 0 ? filtered : targetGeminiModels,
-          });
-        } catch {
-          set({ availableModels: targetGeminiModels });
-        }
-      } else {
-        const response = await fetch(targetUrl, { headers });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        const models = data.data.map((m: any) => m.id);
-        set({ availableModels: models });
+      // ... (Your decryption logic remains the same)
+      if (activeProviderConfig?.encryptedApiKey) {
+        const activeKey = await decryptKey(
+          activeProviderConfig.encryptedApiKey,
+        );
+        if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
       }
 
-      const models = get().availableModels;
+      let targetUrl =
+        provider === "gemini"
+          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
+          : `${activeProviderConfig.baseUrl}/v1/models`;
+
+      if (provider === "ollama")
+        targetUrl = `${activeProviderConfig.baseUrl}/api/tags`;
+
+      // 2. Fetch with validation
+      const response = await fetch(targetUrl, { headers });
+
+      // Check if the response is actually JSON before parsing
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(
+          `Server returned non-JSON response (Status: ${response.status}). Check if the URL is correct.`,
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `HTTP Error ${response.status}: Failed to reach provider.`,
+        );
+      }
+
+      const data = await response.json();
+
+      // 3. Normalize models based on provider structure
+      let models: string[] = [];
+      if (provider === "ollama") {
+        models = data.models.map((m: any) => m.name);
+      } else {
+        // Handles OpenAI compatible and Gemini
+        models = data.data.map((m: any) => m.id);
+      }
+
+      set({ availableModels: models });
+
+      // Auto-select first model if none selected
       if (
         models.length > 0 &&
         (!get().model || !models.includes(get().model))
       ) {
         set({ model: models[0] });
       }
-    } catch (err) {
-      console.error(
-        "Could not fetch models for current provider settings.",
-        err,
-      );
-      set({ availableModels: [] });
+    } catch (err: any) {
+      console.error("Could not fetch models:", err);
+      set({
+        availableModels: [],
+        providerError: err.message || "Connection failed. Verify host address.",
+      });
+    } finally {
+      set({ isFetchingModels: false });
     }
   },
 
@@ -538,6 +810,81 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const updated = { ...currentSession, model, updatedAt: Date.now() };
         saveSession(updated).then(() => get().loadSessionsFromStorage());
       }
+    }
+  },
+
+  testProviderConnection: async (provider: ProviderType) => {
+    const { settings } = get();
+    const config = settings.providers[provider];
+
+    if (!config) return { success: false, message: "Configuration not found." };
+
+    // 1. URL Validation Guard
+    if (
+      provider !== "gemini" &&
+      (!config.baseUrl || config.baseUrl.trim() === "")
+    ) {
+      return { success: false, message: "Base URL is required." };
+    }
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      if (config.encryptedApiKey) {
+        const key = await decryptKey(config.encryptedApiKey);
+        if (key) headers["Authorization"] = `Bearer ${key}`;
+      }
+
+      const url =
+        provider === "ollama"
+          ? `${config.baseUrl}/api/tags`
+          : provider === "gemini"
+            ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
+            : `${config.baseUrl}/v1/models`;
+
+      const res = await fetch(url, { method: "GET", headers });
+
+      // 2. Validate Response Content Type (The critical fix)
+      const contentType = res.headers.get("content-type");
+      if (!res.ok) {
+        return {
+          success: false,
+          message: `HTTP ${res.status}: Could not connect to ${provider}.`,
+        };
+      }
+
+      if (!contentType || !contentType.includes("application/json")) {
+        return {
+          success: false,
+          message:
+            "Connection reached, but the server returned an invalid format (not JSON). Check your Base URL.",
+        };
+      }
+
+      // 3. Final verification: Ensure the JSON actually contains models
+      const data = await res.json();
+      const hasModels = provider === "ollama" ? !!data.models : !!data.data;
+
+      if (!hasModels) {
+        return {
+          success: false,
+          message:
+            "Connection successful, but no models found at this endpoint.",
+        };
+      }
+
+      return { success: true, message: "Handshake verified successfully." };
+    } catch (e: any) {
+      console.error("Test connection error:", e);
+      return {
+        success: false,
+        message:
+          e.message === "Failed to fetch"
+            ? "Network error: Verify the server is running and CORS is enabled."
+            : e.message,
+      };
     }
   },
 
@@ -571,7 +918,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await deleteSessionFromDB(id);
     await get().loadSessionsFromStorage();
     if (get().currentSessionId === id) {
-      set({ currentSessionId: null, messages: [] });
+      set(() => ({
+        currentSessionId: null,
+        messages: [],
+        search: {
+          enabled: false,
+          maxResults: 3,
+          status: "idle",
+        },
+      }));
     }
   },
 
@@ -649,34 +1004,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const {
-      model,
-      messages,
-      isLoading,
-      currentSessionId,
-      settings,
-      customPersonas,
-    } = get();
+    const { model, messages, isLoading, currentSessionId, search } = get();
     if (!model || isLoading || !content.trim()) return;
 
-    const provider = settings.currentProvider;
-    const activeProviderConfig = settings.providers[provider];
-
-    // Lock unique closure execution context identifiers cleanly
-    let sessionId = currentSessionId || crypto.randomUUID();
-    const isBrandNewSession = !currentSessionId;
+    const sessionId = currentSessionId || crypto.randomUUID();
     const controller = new AbortController();
 
-    const newUserMessage: ChatMessage = {
-      role: "user",
-      content,
-      timestamp: Date.now(),
-      isPinned: false,
-      isPruned: false,
-    };
-    const updatedMessagesWithUser = [...messages, newUserMessage];
+    const updatedMessagesWithUser: ChatMessage[] = [
+      ...messages,
+      {
+        role: "user",
+        content,
+        timestamp: Date.now(),
+        isPinned: false,
+        isPruned: false,
+      },
+    ];
 
-    const initialTitle = isBrandNewSession
+    const initialTitle = !currentSessionId
       ? content.length > 26
         ? `${content.slice(0, 24)}...`
         : content
@@ -692,6 +1037,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         {
           role: "assistant",
           content: "",
+          thinking: "",
           timestamp: Date.now(),
           isPinned: false,
           isPruned: false,
@@ -711,180 +1057,114 @@ export const useChatStore = create<ChatState>((set, get) => ({
       abortControllers: { ...state.abortControllers, [sessionId]: controller },
     }));
 
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
+    // --- NEW WEB SEARCH INTERCEPTION ---
+    let injectedWebContext: string | undefined = undefined;
 
-      if (activeProviderConfig.encryptedApiKey) {
-        const activeKey = await decryptKey(
-          activeProviderConfig.encryptedApiKey,
-        );
-        if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
-      }
+    if (search?.enabled) {
+      set((state) => ({ search: { ...state.search, status: "searching" } }));
 
-      const isOllama = provider === "ollama";
-      const isGemini = provider === "gemini";
+      try {
+        // Import searchWeb service at the top of your file
+        const results = await searchWeb(content, search.maxResults);
 
-      const targetUrl = isOllama
-        ? `${activeProviderConfig.baseUrl}/api/chat`
-        : isGemini
-          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
-          : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
-
-      // Centralized Telemetry Assembly Channel Execution
-      const compiledActiveContext = compileTelemetryPayload(
-        updatedMessagesWithUser,
-        sessionId,
-        customPersonas,
-      );
-
-      const standardPayload = {
-        model,
-        messages: compiledActiveContext,
-        stream: true,
-      };
-
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(standardPayload),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body)
-        throw new Error("Engine generation failure");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantTextAccumulator = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunkText = decoder.decode(value, { stream: true });
-        const lines = chunkText.split("\n");
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine) continue;
-
-          try {
-            if (isOllama) {
-              const parsedChunk = JSON.parse(trimmedLine);
-              if (parsedChunk.message?.content) {
-                assistantTextAccumulator += parsedChunk.message.content;
-              }
-            } else {
-              if (trimmedLine.startsWith("data: ")) {
-                const rawJson = trimmedLine.replace(/^data:\s*/, "");
-                if (rawJson === "[DONE]") continue;
-
-                const parsedChunk = JSON.parse(rawJson);
-                const contentChunk = parsedChunk.choices?.[0]?.delta?.content;
-                if (contentChunk) {
-                  assistantTextAccumulator += contentChunk;
-                }
-              }
-            }
-
-            // Target state updates structurally relative to their designated unique sessionId
-            set((state) => {
-              const updatedSessions = state.sessions.map((s) => {
-                if (s.id === sessionId) {
-                  const currentHistory = [...s.messages];
-                  if (currentHistory.length > 0) {
-                    currentHistory[currentHistory.length - 1] = {
-                      ...currentHistory[currentHistory.length - 1],
-                      content: assistantTextAccumulator,
-                      timestamp: Date.now(),
-                    };
-                  }
-                  return {
-                    ...s,
-                    messages: currentHistory,
-                    updatedAt: Date.now(),
-                  };
-                }
-                return s;
-              });
-
-              // Only update workspace display if user hasn't switched chats
-              const isCurrent = state.currentSessionId === sessionId;
-              const updatedMessages = isCurrent
-                ? updatedSessions.find((s) => s.id === sessionId)?.messages ||
-                  state.messages
-                : state.messages;
-
-              return {
-                sessions: updatedSessions,
-                messages: updatedMessages,
-              };
-            });
-          } catch (e) {}
+        if (results && results.length > 0) {
+          injectedWebContext = formatSearchResults(results);
+          set((state) => ({
+            search: { ...state.search, status: "completed" },
+          }));
+        } else {
+          set((state) => ({ search: { ...state.search, status: "idle" } }));
         }
+      } catch (searchError) {
+        // Soft fail: log error but guarantee prompt inference remains unblocked
+        console.error(
+          "Context Injection RAG failed, proceeding gracefully:",
+          searchError,
+        );
+        set((state) => ({ search: { ...state.search, status: "error" } }));
       }
-
-      set((state) => {
-        const newControllers = { ...state.abortControllers };
-        delete newControllers[sessionId];
-        return {
-          abortControllers: newControllers,
-          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
-        };
-      });
-
-      const finalMessages =
-        get().sessions.find((s) => s.id === sessionId)?.messages ||
-        get().messages;
-
-      const finalSessionRecord: ChatSession = {
-        id: sessionId,
-        title: initialTitle,
-        model,
-        messages: finalMessages,
-        updatedAt: Date.now(),
-      };
-
-      await saveSession(finalSessionRecord);
-      await get().loadSessionsFromStorage();
-    } catch (error: any) {
-      if (error.name === "AbortError") {
-        console.log("Streaming request gracefully severed by the client.");
-      } else {
-        console.error("Inference execution failed:", error);
-      }
-      set((state) => {
-        const newControllers = { ...state.abortControllers };
-        delete newControllers[sessionId];
-        return {
-          abortControllers: newControllers,
-          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
-        };
-      });
     }
+
+    // Hand off execution cleanly, adding webContext to the parameters
+    await executeStreamingInference({
+      sessionId,
+      historyForTelemetry: updatedMessagesWithUser,
+      controller,
+      get,
+      set,
+      webContext: injectedWebContext,
+    });
   },
 
   onUpdateUserMessage: async (index: number, newContent: string) => {
-    const { messages, isLoading, currentSessionId } = get();
+    const { model, messages, isLoading, currentSessionId } = get();
     if (isLoading || !newContent.trim() || !currentSessionId) return;
 
-    // Truncate the history right up to the user message being edited
-    const cleanHistory = messages.slice(0, index);
+    // 1. Guard rails: Ensure we are safely targeting a user message
+    const targetUserIdx = messages[index].role === "user" ? index : index - 1;
+    if (targetUserIdx < 0 || messages[targetUserIdx].role !== "user") return;
 
-    // Sync state configuration arrays prior to calling pipeline
+    const controller = new AbortController();
+    const sessionId = currentSessionId;
+
+    // 2. Truncate history *before* the edited message, then append the replacement content
+    const cleanHistory = messages.slice(0, targetUserIdx);
+    const newUserMessage: ChatMessage = {
+      role: "user",
+      content: newContent,
+      timestamp: Date.now(),
+      isPinned: false,
+      isPruned: false,
+    };
+    const updatedMessagesWithUser = [...cleanHistory, newUserMessage];
+
+    const transientSessionRecord: ChatSession = {
+      id: sessionId,
+      title:
+        get().sessions.find((s) => s.id === sessionId)?.title ||
+        "Active Discussion",
+      model,
+      messages: [
+        ...updatedMessagesWithUser,
+        {
+          role: "assistant",
+          content: "",
+          thinking: "",
+          timestamp: Date.now(),
+          isPinned: false,
+          isPruned: false,
+        },
+      ],
+      updatedAt: Date.now(),
+    };
+
+    // 3. Perform I/O operations *before* switching state to eliminate layout flashing
+    await saveSession(transientSessionRecord);
+    await get().loadSessionsFromStorage();
+
     set((state) => {
-      const updatedSessions = state.sessions.map((s) => {
-        if (s.id === currentSessionId) {
-          return { ...s, messages: cleanHistory, updatedAt: Date.now() };
-        }
-        return s;
-      });
-      return { messages: cleanHistory, sessions: updatedSessions };
+      const updatedSessions = state.sessions.map((s) =>
+        s.id === sessionId ? transientSessionRecord : s,
+      );
+      return {
+        messages: transientSessionRecord.messages,
+        sessions: updatedSessions,
+        isLoading: true,
+        abortControllers: {
+          ...state.abortControllers,
+          [sessionId]: controller,
+        },
+      };
     });
 
-    await get().sendMessage(newContent);
+    // 4. Hand off directly to our core streaming orchestration pipeline
+    await executeStreamingInference({
+      sessionId,
+      historyForTelemetry: updatedMessagesWithUser,
+      controller,
+      get,
+      set,
+    });
   },
 
   onRegenerateFromCheckpoint: async (
@@ -896,18 +1176,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       presencePenalty: number;
     },
   ) => {
-    const {
-      model,
-      messages,
-      isLoading,
-      currentSessionId,
-      settings,
-      customPersonas,
-    } = get();
+    const { model, messages, isLoading, currentSessionId } = get();
     if (!model || isLoading || !currentSessionId) return;
-
-    const provider = settings.currentProvider;
-    const activeProviderConfig = settings.providers[provider];
 
     const targetUserIdx = messages[index].role === "user" ? index : index - 1;
     if (targetUserIdx < 0 || messages[targetUserIdx].role !== "user") return;
@@ -919,17 +1189,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Explicit closure lock for background checkpoint loop
     const sessionId = currentSessionId;
 
-    const compiledActiveContext = compileTelemetryPayload(
-      cleanHistory,
-      sessionId,
-      customPersonas,
-    );
-
     const streamingHistory: ChatMessage[] = [
       ...cleanHistory,
       {
-        role: "assistant" as const,
+        role: "assistant",
         content: "",
+        thinking: "",
         timestamp: Date.now(),
         isPinned: false,
         isPruned: false,
@@ -938,12 +1203,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     ];
 
     set((state) => {
-      const updatedSessions = state.sessions.map((s) => {
-        if (s.id === sessionId) {
-          return { ...s, messages: streamingHistory, updatedAt: Date.now() };
-        }
-        return s;
-      });
+      const updatedSessions = state.sessions.map((s) =>
+        s.id === sessionId
+          ? { ...s, messages: streamingHistory, updatedAt: Date.now() }
+          : s,
+      );
       return {
         messages: streamingHistory,
         sessions: updatedSessions,
@@ -955,161 +1219,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
 
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (activeProviderConfig.encryptedApiKey) {
-        const activeKey = await decryptKey(
-          activeProviderConfig.encryptedApiKey,
-        );
-        if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
-      }
-
-      const isOllama = provider === "ollama";
-      const isGemini = provider === "gemini";
-
-      const targetUrl = isOllama
-        ? `${activeProviderConfig.baseUrl}/api/chat`
-        : isGemini
-          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
-          : `${activeProviderConfig.baseUrl}/v1/chat/completions`;
-
-      const standardPayload: Record<string, any> = {
-        model,
-        messages: compiledActiveContext,
-        stream: true,
-      };
-
-      if (isOllama) {
-        standardPayload.options = {
-          temperature: overrides.temperature,
-          top_p: overrides.topP,
-          frequency_penalty: overrides.frequencyPenalty,
-          presence_penalty: overrides.presencePenalty,
-        };
-      } else if (isGemini) {
-        standardPayload.temperature = overrides.temperature;
-        standardPayload.top_p = overrides.topP;
-      } else {
-        standardPayload.temperature = overrides.temperature;
-        standardPayload.top_p = overrides.topP;
-        standardPayload.frequency_penalty = overrides.frequencyPenalty;
-        standardPayload.presence_penalty = overrides.presencePenalty;
-      }
-
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(standardPayload),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body)
-        throw new Error("Checkpoint regeneration error");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantTextAccumulator = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunkText = decoder.decode(value, { stream: true });
-        const lines = chunkText.split("\n");
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine) continue;
-
-          try {
-            if (isOllama) {
-              const parsedChunk = JSON.parse(trimmedLine);
-              if (parsedChunk.message?.content) {
-                assistantTextAccumulator += parsedChunk.message.content;
-              }
-            } else {
-              if (trimmedLine.startsWith("data: ")) {
-                const rawJson = trimmedLine.replace(/^data:\s*/, "");
-                if (rawJson === "[DONE]") continue;
-
-                const parsedChunk = JSON.parse(rawJson);
-                const contentChunk = parsedChunk.choices?.[0]?.delta?.content;
-                if (contentChunk) {
-                  assistantTextAccumulator += contentChunk;
-                }
-              }
-            }
-
-            set((state) => {
-              const updatedSessions = state.sessions.map((s) => {
-                if (s.id === sessionId) {
-                  const currentHistory = [...s.messages];
-                  if (currentHistory.length > 0) {
-                    currentHistory[currentHistory.length - 1] = {
-                      ...currentHistory[currentHistory.length - 1],
-                      content: assistantTextAccumulator,
-                      timestamp: Date.now(),
-                    };
-                  }
-                  return {
-                    ...s,
-                    messages: currentHistory,
-                    updatedAt: Date.now(),
-                  };
-                }
-                return s;
-              });
-
-              const isCurrent = state.currentSessionId === sessionId;
-              const updatedMessages = isCurrent
-                ? updatedSessions.find((s) => s.id === sessionId)?.messages ||
-                  state.messages
-                : state.messages;
-
-              return {
-                sessions: updatedSessions,
-                messages: updatedMessages,
-              };
-            });
-          } catch (e) {}
-        }
-      }
-
-      set((state) => {
-        const newControllers = { ...state.abortControllers };
-        delete newControllers[sessionId];
-        return {
-          abortControllers: newControllers,
-          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
-        };
-      });
-
-      const sessionMatch = get().sessions.find((s) => s.id === sessionId);
-      if (sessionMatch) {
-        const finalSessionRecord = {
-          ...sessionMatch,
-          messages: sessionMatch.messages,
-          updatedAt: Date.now(),
-        };
-        await saveSession(finalSessionRecord);
-        await get().loadSessionsFromStorage();
-      }
-    } catch (error: any) {
-      if (error.name === "AbortError") {
-        console.log("Checkpoint regeneration loop gracefully halted.");
-      } else {
-        console.error("Context regeneration failed:", error);
-      }
-      set((state) => {
-        const newControllers = { ...state.abortControllers };
-        delete newControllers[sessionId];
-        return {
-          abortControllers: newControllers,
-          ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
-        };
-      });
-    }
+    // Hand off execution cleanly with structural configurations overrides
+    await executeStreamingInference({
+      sessionId,
+      historyForTelemetry: cleanHistory,
+      controller,
+      get,
+      set,
+      overrides,
+    });
   },
 }));
