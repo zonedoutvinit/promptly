@@ -17,8 +17,8 @@ const normalizeQuery = (query: string): string => {
 };
 
 /**
- * Service to execute web searches using native browser fetch and DOM extraction.
- * Proxied via a public CORS pipeline to safely allow browser-side web scraping.
+ * Service to execute web searches using Electron's Main Process.
+ * Bypasses CORS by routing requests through Node.js.
  */
 export async function searchWeb(
   query: string,
@@ -34,25 +34,15 @@ export async function searchWeb(
   }
 
   try {
-    // 2. Wrap DuckDuckGo non-JS fallback URL in a reliable public CORS proxy
-    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const targetUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(ddgUrl)}`;
-
-    const response = await fetch(targetUrl);
-
-    if (!response.ok) {
-      throw new Error(`CORS Proxy lookup failure: Status ${response.status}`);
-    }
-
-    // allorigins wraps the payload inside a JSON object: { contents: "<html>..." }
-    const jsonWrapper = await response.json();
-    const rawHtmlText = jsonWrapper.contents;
+    // 2. Invoke the Electron bridge to fetch HTML from the Main Process
+    // The main process handles the request without CORS restrictions
+    const rawHtmlText = await window.electronAPI.search(query);
 
     if (!rawHtmlText) {
-      throw new Error("No payload contents extracted from proxy wrapper.");
+      throw new Error("No payload returned from search service.");
     }
 
-    // 3. Parse content structure using the browser's native DOM Parser assembly
+    // 3. Parse content structure using the browser's native DOM Parser
     const parser = new DOMParser();
     const doc = parser.parseFromString(rawHtmlText, "text/html");
 
@@ -77,7 +67,7 @@ export async function searchWeb(
       if (anchorEl) {
         let destinationUrl = anchorEl.getAttribute("href") || "";
 
-        // Strip outbound tracking redirects if wrapped by DuckDuckGo's internal proxy parameters
+        // Strip outbound tracking redirects
         if (destinationUrl.includes("uddg=")) {
           const searchParams = new URLSearchParams(
             destinationUrl.split("?")[1],
@@ -105,9 +95,8 @@ export async function searchWeb(
 
     return formattedResults;
   } catch (error) {
-    // Continuous execution processing flow preservation safeguard
     console.error(
-      `Browser Web Search interface runtime exception encountered:`,
+      `Electron Web Search interface runtime exception encountered:`,
       error,
     );
     return [];

@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain, net } = require("electron");
 const path = require("path");
 const fs = require("fs"); // Required for bulletproof Linux detection
 const { autoUpdater } = require("electron-updater");
@@ -25,7 +25,8 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false,
+      webSecurity: true,
+      preload: path.join(__dirname, "preload.js"), // Add this
     },
   });
 
@@ -88,6 +89,23 @@ function createWindow() {
     }
   });
 }
+
+// IPC Handler to perform the search
+ipcMain.handle("perform-search", async (event, query) => {
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const response = await net.fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    return await response.text();
+  } catch (error) {
+    console.error("Search failed:", error);
+    return ""; // Return empty string so your UI doesn't crash
+  }
+});
 
 app.whenReady().then(createWindow);
 
