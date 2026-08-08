@@ -1,7 +1,6 @@
-// main.js
-const { app, BrowserWindow, ipcMain, net } = require("electron");
+const { app, BrowserWindow, ipcMain, net, dialog } = require("electron");
 const path = require("path");
-const fs = require("fs"); // Required for bulletproof Linux detection
+const fs = require("fs");
 const { autoUpdater } = require("electron-updater");
 
 app.setPath("userData", path.join(app.getPath("appData"), "promptly"));
@@ -17,6 +16,80 @@ function getIconPath() {
   return path.join(__dirname, "public", "android-chrome-512x512.png");
 }
 
+// Ensure proper runtime execution environment when running as an AppImage on Linux
+function setupLinuxAppImageEnvironment() {
+  if (process.platform !== "linux") return;
+
+  // Verify whether APPIMAGE runtime env variable exists
+  if (!process.env.APPIMAGE) {
+    console.warn(
+      "APPIMAGE environment path not detected. Fallback hook check...",
+    );
+
+    // If launched directly without environment context, point to current executable path
+    const currentExec = process.execPath;
+    if (currentExec.endsWith(".AppImage")) {
+      process.env.APPIMAGE = currentExec;
+    } else {
+      // Create a temporary execution context indicator in /tmp for updater validation
+      const tmpAppImagePath = path.join(
+        "/tmp",
+        `promptly-${app.getVersion()}.AppImage`,
+      );
+      if (!fs.existsSync(tmpAppImagePath) && fs.existsSync(currentExec)) {
+        try {
+          fs.symlinkSync(currentExec, tmpAppImagePath);
+          process.env.APPIMAGE = tmpAppImagePath;
+        } catch (err) {
+          console.error(
+            "Failed to create temporary AppImage symlink hook:",
+            err,
+          );
+        }
+      }
+    }
+  }
+}
+
+function setupAutoUpdater(mainWindow) {
+  if (process.env.NODE_ENV === "development") return;
+
+  // Configure autoUpdater for background silent downloads
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("error", (error) => {
+    console.error("Auto-updater error:", error);
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    console.log(
+      `Update available: ${info.version}. Downloading in background...`,
+    );
+  });
+
+  // Prompt user cleanly when the update has finished downloading in background
+  autoUpdater.on("update-downloaded", (info) => {
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "info",
+        title: "Update Ready",
+        message: `Version ${info.version} has been downloaded and is ready to install.`,
+        buttons: ["Restart Now", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          autoUpdater.quitAndInstall(false, true);
+        }
+      });
+  });
+
+  // Initiate update check
+  autoUpdater.checkForUpdatesAndNotify();
+}
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     show: false,
@@ -26,7 +99,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
-      preload: path.join(__dirname, "preload.js"), // Add this
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
@@ -35,54 +108,29 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "dist/index.html"));
-
-    if (process.platform === "linux") {
-      let channel = "latest";
-      // Determine the channel based on the OS
-      if (fs.existsSync("/etc/arch-release")) {
-        channel = "pacman";
-      } else if (fs.existsSync("/etc/debian_version")) {
-        channel = "deb";
-      } else if (
-        fs.existsSync("/etc/redhat-release") ||
-        fs.existsSync("/etc/fedora-release")
-      ) {
-        channel = "rpm";
-      }
-      autoUpdater.channel = channel;
-    }
-
-    // Auto-updater check (Only in production)
-    autoUpdater.checkForUpdatesAndNotify();
+    setupAutoUpdater(mainWindow);
   }
 
   // Window Presentation and Zoom Lifecycle Management
   mainWindow.once("ready-to-show", () => {
-    // Clear out Chromium's persistent zoom memory cache and reset cleanly to 100%
     mainWindow.webContents.setZoomLevel(0);
-
     mainWindow.maximize();
     mainWindow.show();
     mainWindow.focus();
   });
 
-  // Explicit, robust custom keyboard zoom controls
+  // Custom keyboard zoom controls
   mainWindow.webContents.on("before-input-event", (event, input) => {
     if (input.control) {
       const currentZoom = mainWindow.webContents.getZoomLevel();
 
-      // Zoom In (Ctrl and + or =)
       if (input.key === "+" || input.key === "=") {
         mainWindow.webContents.setZoomLevel(currentZoom + 0.5);
         event.preventDefault();
-      }
-      // Zoom Out (Ctrl and -)
-      else if (input.key === "-") {
+      } else if (input.key === "-") {
         mainWindow.webContents.setZoomLevel(currentZoom - 0.5);
         event.preventDefault();
-      }
-      // Reset Zoom to default (Ctrl and 0)
-      else if (input.key === "0") {
+      } else if (input.key === "0") {
         mainWindow.webContents.setZoomLevel(0);
         event.preventDefault();
       }
@@ -90,7 +138,7 @@ function createWindow() {
   });
 }
 
-// IPC Handler to perform the search
+// IPC Handler to perform search
 ipcMain.handle("perform-search", async (event, query) => {
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -103,11 +151,14 @@ ipcMain.handle("perform-search", async (event, query) => {
     return await response.text();
   } catch (error) {
     console.error("Search failed:", error);
-    return ""; // Return empty string so your UI doesn't crash
+    return "";
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  setupLinuxAppImageEnvironment();
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
