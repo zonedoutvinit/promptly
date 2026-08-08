@@ -737,7 +737,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     };
 
     try {
-      // ... (Your decryption logic remains the same)
       if (activeProviderConfig?.encryptedApiKey) {
         const activeKey = await decryptKey(
           activeProviderConfig.encryptedApiKey,
@@ -772,14 +771,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const data = await response.json();
 
-      // 3. Normalize models based on provider structure
+      // 3. Normalize & filter models based on provider structure
       let models: string[] = [];
       if (provider === "ollama") {
-        models = data.models.map((m: any) => m.name);
+        models = data.models?.map((m: any) => m.name) || [];
       } else {
-        // Handles OpenAI compatible and Gemini
-        models = data.data.map((m: any) => m.id);
+        // Handles Gemini, OpenAI, and custom OpenAI-compatible providers
+        const rawList = Array.isArray(data.data)
+          ? data.data
+          : Array.isArray(data.models)
+            ? data.models
+            : [];
+
+        models = rawList
+          .map((m: any) => {
+            // Extract string and strip "models/" prefix if returned by Google
+            const rawId = m.id || m.name || "";
+            return rawId.replace(/^models\//, "");
+          })
+          .filter((id: string) => {
+            if (!id) return false;
+
+            if (provider === "gemini") {
+              const lower = id.toLowerCase();
+
+              // Exclude non-text/chat specialized models
+              const isNonLLM =
+                lower.includes("embedding") ||
+                lower.includes("imagen") ||
+                lower.includes("image") ||
+                lower.includes("robotics") ||
+                lower.includes("computer-use") ||
+                lower.includes("live") ||
+                lower.includes("streaming") ||
+                lower.includes("translate") ||
+                lower.includes("tts") ||
+                lower.includes("whisper") ||
+                lower.includes("audio") ||
+                lower.includes("aqa") ||
+                lower.includes("veo");
+
+              // Match text/chat model series (Gemini & Gemma)
+              const isLLM =
+                lower.startsWith("gemini") || lower.startsWith("gemma");
+
+              return isLLM && !isNonLLM;
+            }
+
+            return true;
+          });
       }
+
+      console.log("these are models", { models });
 
       set({ availableModels: models });
 

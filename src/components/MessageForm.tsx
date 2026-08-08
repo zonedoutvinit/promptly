@@ -214,7 +214,9 @@ export const MessageForm: React.FC<MessageFormProps> = ({
           }`}
         >
           {/* Top/Center Workspace Row: Contains Textarea */}
-          <div className={`w-full ${isExpanded ? "mb-2" : ""}`}>
+          <div
+            className={`w-full ${isExpanded ? "mb-2" : "flex items-center"}`}
+          >
             <textarea
               ref={textareaRef}
               rows={1}
@@ -227,8 +229,10 @@ export const MessageForm: React.FC<MessageFormProps> = ({
                   : "Enter Prompt... (Ctrl+Enter to execute)"
               }
               disabled={isLoading}
-              className={`w-full bg-transparent max-h-48 resize-none text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono leading-relaxed ${
-                isExpanded ? "pt-1.5 px-3 pb-0" : "py-1 px-1"
+              className={`w-full bg-transparent max-h-48 resize-none text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono ${
+                isExpanded
+                  ? "pt-1.5 px-3 pb-0 leading-relaxed"
+                  : "py-1.5 px-1 leading-5 overflow-hidden block"
               }`}
             />
           </div>
