@@ -140,17 +140,29 @@ function createWindow() {
 
 // IPC Handler to perform search
 ipcMain.handle("perform-search", async (event, query) => {
+  if (!query || typeof query !== "string" || !query.trim()) {
+    return "";
+  }
+
   try {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const response = await net.fetch(url, {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query.trim())}`;
+
+    const response = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     });
+
+    if (!response.ok) {
+      throw Error(`Search request failed with status: ${response.status}`);
+    }
+
     return await response.text();
   } catch (error) {
-    console.error("Search failed:", error);
+    console.error("Search failed with error:", error);
     return "";
   }
 });

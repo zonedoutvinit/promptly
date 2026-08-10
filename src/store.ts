@@ -822,8 +822,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
       }
 
-      console.log("these are models", { models });
-
       set({ availableModels: models });
 
       // Auto-select first model if none selected
@@ -1128,15 +1126,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
-    // Hand off execution cleanly, adding webContext to the parameters
-    await executeStreamingInference({
-      sessionId,
-      historyForTelemetry: updatedMessagesWithUser,
-      controller,
-      get,
-      set,
-      webContext: injectedWebContext,
-    });
+    try {
+      // Hand off execution cleanly, adding webContext to the parameters
+      await executeStreamingInference({
+        sessionId,
+        historyForTelemetry: updatedMessagesWithUser,
+        controller,
+        get,
+        set,
+        webContext: injectedWebContext,
+      });
+    } catch (inferenceError) {
+      console.error("Streaming inference execution error:", inferenceError);
+    } finally {
+      set((state) => ({
+        search: { ...state.search, status: "idle" },
+      }));
+    }
   },
 
   onUpdateUserMessage: async (index: number, newContent: string) => {

@@ -64,6 +64,7 @@
     "appId": "com.promptly.app",
     "files": [
       "main.js",
+      "preload.js",
       "dist/**/*",
       "public/**/*"
     ],

@@ -48,6 +48,14 @@ export async function searchWeb(
 
     // DuckDuckGo encapsulates search results inside elements using the '.web-result' CSS class selectors
     const resultNodes = doc.querySelectorAll(".web-result");
+
+    if (resultNodes.length === 0) {
+      console.warn(
+        "Web search returned 0 result nodes. DDG Page Title:",
+        doc.querySelector("title")?.textContent,
+      );
+    }
+
     const formattedResults: SearchResult[] = [];
 
     for (
@@ -96,7 +104,7 @@ export async function searchWeb(
     return formattedResults;
   } catch (error) {
     console.error(
-      `Electron Web Search interface runtime exception encountered:`,
+      "Electron Web Search interface runtime exception encountered:",
       error,
     );
     return [];
