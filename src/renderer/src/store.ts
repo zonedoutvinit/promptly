@@ -717,7 +717,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const provider = settings.currentProvider;
     const activeProviderConfig = settings.providers[provider];
 
-    // 1. Guard clause: Don't fetch if URL is missing for non-Gemini providers
+    // 1. Decrypt API Key if present
+    const rawApiKey = activeProviderConfig?.encryptedApiKey
+      ? await decryptKey(activeProviderConfig.encryptedApiKey)
+      : "";
+
+    // 2. Provider-specific validation guards
+    if (provider === "gemini" && (!rawApiKey || rawApiKey.trim() === "")) {
+      set({
+        availableModels: [],
+        providerError: "API key is required for Google Gemini.",
+        isFetchingModels: false,
+      });
+      return;
+    }
+
     if (
       provider !== "gemini" &&
       (!activeProviderConfig?.baseUrl ||
@@ -726,6 +740,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({
         availableModels: [],
         providerError: "Base URL is required for this provider.",
+        isFetchingModels: false,
       });
       return;
     }
@@ -737,46 +752,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
     };
 
     try {
-      if (activeProviderConfig?.encryptedApiKey) {
-        const activeKey = await decryptKey(
-          activeProviderConfig.encryptedApiKey,
-        );
-        if (activeKey) headers["Authorization"] = `Bearer ${activeKey}`;
+      let targetUrl = "";
+
+      if (provider === "gemini") {
+        targetUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+        headers["x-goog-api-key"] = rawApiKey;
+      } else if (provider === "ollama") {
+        // Ollama does not need Bearer auth headers by default
+        targetUrl = `${activeProviderConfig.baseUrl.replace(/\/$/, "")}/api/tags`;
+      } else {
+        // Standard OpenAI-compatible endpoints
+        if (rawApiKey) {
+          headers["Authorization"] = `Bearer ${rawApiKey}`;
+        }
+        targetUrl = `${activeProviderConfig.baseUrl.replace(/\/$/, "")}/v1/models`;
       }
 
-      let targetUrl =
-        provider === "gemini"
-          ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
-          : `${activeProviderConfig.baseUrl}/v1/models`;
-
-      if (provider === "ollama")
-        targetUrl = `${activeProviderConfig.baseUrl}/api/tags`;
-
-      // 2. Fetch with validation
       const response = await fetch(targetUrl, { headers });
 
-      // Check if the response is actually JSON before parsing
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         throw new Error(
-          `Server returned non-JSON response (Status: ${response.status}). Check if the URL is correct.`,
+          `Server returned non-JSON response (Status: ${response.status}). Check if your Base URL is correct.`,
         );
       }
 
       if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
         throw new Error(
-          `HTTP Error ${response.status}: Failed to reach provider.`,
+          errorBody.error?.message ||
+            `HTTP Error ${response.status}: Failed to reach provider endpoint.`,
         );
       }
 
       const data = await response.json();
 
-      // 3. Normalize & filter models based on provider structure
       let models: string[] = [];
       if (provider === "ollama") {
         models = data.models?.map((m: any) => m.name) || [];
       } else {
-        // Handles Gemini, OpenAI, and custom OpenAI-compatible providers
         const rawList = Array.isArray(data.data)
           ? data.data
           : Array.isArray(data.models)
@@ -785,7 +799,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         models = rawList
           .map((m: any) => {
-            // Extract string and strip "models/" prefix if returned by Google
             const rawId = m.id || m.name || "";
             return rawId.replace(/^models\//, "");
           })
@@ -794,8 +807,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             if (provider === "gemini") {
               const lower = id.toLowerCase();
-
-              // Exclude non-text/chat specialized models
               const isNonLLM =
                 lower.includes("embedding") ||
                 lower.includes("imagen") ||
@@ -811,7 +822,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 lower.includes("aqa") ||
                 lower.includes("veo");
 
-              // Match text/chat model series (Gemini & Gemma)
               const isLLM =
                 lower.startsWith("gemini") || lower.startsWith("gemma");
 
@@ -824,7 +834,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set({ availableModels: models });
 
-      // Auto-select first model if none selected
       if (
         models.length > 0 &&
         (!get().model || !models.includes(get().model))
@@ -860,7 +869,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (!config) return { success: false, message: "Configuration not found." };
 
-    // 1. URL Validation Guard
+    const rawKey = config.encryptedApiKey
+      ? await decryptKey(config.encryptedApiKey)
+      : "";
+
+    if (provider === "gemini" && (!rawKey || rawKey.trim() === "")) {
+      return {
+        success: false,
+        message: "API key is required for Google Gemini.",
+      };
+    }
+
     if (
       provider !== "gemini" &&
       (!config.baseUrl || config.baseUrl.trim() === "")
@@ -873,21 +892,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         "Content-Type": "application/json",
       };
 
-      if (config.encryptedApiKey) {
-        const key = await decryptKey(config.encryptedApiKey);
-        if (key) headers["Authorization"] = `Bearer ${key}`;
+      let url = "";
+      if (provider === "gemini") {
+        url = "https://generativelanguage.googleapis.com/v1beta/models";
+        headers["x-goog-api-key"] = rawKey;
+      } else if (provider === "ollama") {
+        url = `${config.baseUrl.replace(/\/$/, "")}/api/tags`;
+      } else {
+        if (rawKey) headers["Authorization"] = `Bearer ${rawKey}`;
+        url = `${config.baseUrl.replace(/\/$/, "")}/v1/models`;
       }
-
-      const url =
-        provider === "ollama"
-          ? `${config.baseUrl}/api/tags`
-          : provider === "gemini"
-            ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/models"
-            : `${config.baseUrl}/v1/models`;
 
       const res = await fetch(url, { method: "GET", headers });
 
-      // 2. Validate Response Content Type (The critical fix)
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
         return {
@@ -900,13 +917,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return {
           success: false,
           message:
-            "Connection reached, but the server returned an invalid format (not JSON). Check your Base URL.",
+            "Connection reached, but server returned an invalid format (not JSON).",
         };
       }
 
-      // 3. Final verification: Ensure the JSON actually contains models
       const data = await res.json();
-      const hasModels = provider === "ollama" ? !!data.models : !!data.data;
+      const hasModels =
+        provider === "ollama" ? !!data.models : !!data.data || !!data.models;
 
       if (!hasModels) {
         return {
@@ -923,7 +940,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         success: false,
         message:
           e.message === "Failed to fetch"
-            ? "Network error: Verify the server is running and CORS is enabled."
+            ? "Network error: Verify Ollama is running and CORS is enabled."
             : e.message,
       };
     }
@@ -945,11 +962,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectSession: (id: string) => {
     const target = get().sessions.find((s) => s.id === id);
     if (target) {
+      // If the session has a model saved, use it; otherwise fallback safely
+      const sessionModel =
+        target.model || get().model || get().availableModels[0];
       set({
         currentSessionId: id,
         messages: target.messages,
-        model: target.model || get().model || get().availableModels[0],
-        // Evaluate loading indicator dynamically relative to this session's background status
+        model: sessionModel,
         isLoading: !!get().abortControllers[id],
       });
     }
@@ -1046,6 +1065,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (content: string) => {
     const { model, messages, isLoading, currentSessionId, search } = get();
+
     if (!model || isLoading || !content.trim()) return;
 
     const sessionId = currentSessionId || crypto.randomUUID();

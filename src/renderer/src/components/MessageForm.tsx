@@ -1,6 +1,6 @@
 // src/components/MessageForm.tsx
 import React, { useRef, useEffect } from "react";
-import { useChatStore } from "../store";
+import { useChatStore, ProviderType } from "../store";
 import {
   Terminal,
   ChevronLeft,
@@ -12,8 +12,10 @@ import {
   Terminal as DefaultIcon,
   Square,
   Send,
-  Globe, // Added for Web Search control toggle UI visualization
-  Loader2, // Added for continuous inline execution tracking state
+  Globe,
+  Loader2,
+  Cpu,
+  ChevronDown,
 } from "lucide-react";
 
 interface MessageFormProps {
@@ -23,7 +25,6 @@ interface MessageFormProps {
   onSubmit: (e: React.FormEvent) => void;
 }
 
-// Map store literal token labels back to explicit Lucide components
 const IconMap: Record<string, React.ComponentType<any>> = {
   Sparkles,
   PenTool,
@@ -38,13 +39,31 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   isLoading,
   onSubmit,
 }) => {
-  // Destructured the search configuration slice variables from your updated Zustand state
-  const { messages, customPersonas, stopGeneration, search, setSearchEnabled } =
-    useChatStore();
+  const {
+    messages,
+    customPersonas,
+    stopGeneration,
+    search,
+    setSearchEnabled,
+    settings,
+    setProvider,
+    model,
+    availableModels,
+    setModel,
+  } = useChatStore();
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Custom Frame-by-Frame Smooth Scroll Engine Loop
+  const currentProvider = settings.currentProvider;
+
+  const providerLabels: Record<ProviderType, string> = {
+    ollama: "Ollama",
+    "lm-studio": "LM Studio",
+    "openai-compatible": "OpenAI API",
+    gemini: "Google Gemini",
+  };
+
   const scrollCarousel = (direction: "left" | "right") => {
     if (!scrollContainerRef.current) return;
 
@@ -64,7 +83,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
       const timeElapsed = currentTime - startTime;
 
       const progress = Math.min(timeElapsed / duration, 1);
-      // Clean ease-in-out calculation curve
       const easeQuadInOut =
         progress < 0.5
           ? 2 * progress * progress
@@ -95,10 +113,8 @@ export const MessageForm: React.FC<MessageFormProps> = ({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, [input]);
 
-  // Force focus back to the input if the chat is cleared or deleted
   useEffect(() => {
     if (messages.length === 0 && textareaRef.current) {
-      // A microtask timeout ensures the DOM has finished updating/rendering
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 50);
@@ -128,7 +144,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
           </div>
 
           <div className="relative w-full overflow-hidden flex items-center group/formCarousel">
-            {/* Static Left Navigation Arrow Badge */}
             <button
               type="button"
               onClick={() => scrollCarousel("left")}
@@ -137,7 +152,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
 
-            {/* Scrolling Horizontal Lane Tracker */}
             <div
               ref={scrollContainerRef}
               className="flex flex-row flex-nowrap gap-2 items-center overflow-x-auto pb-1 pt-0.5 scrollbar-none w-full px-7"
@@ -159,7 +173,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
               })}
             </div>
 
-            {/* Static Right Navigation Arrow Badge */}
             <button
               type="button"
               onClick={() => scrollCarousel("right")}
@@ -168,7 +181,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
 
-            {/* Gradient Masks for smooth trailing side cuts */}
             <div className="absolute top-0 right-0 h-full w-7 bg-linear-to-l from-theme-bg to-transparent pointer-events-none" />
             <div className="absolute top-0 left-0 h-full w-7 bg-linear-to-r from-theme-bg to-transparent pointer-events-none" />
           </div>
@@ -205,7 +217,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
       )}
 
       {/* INPUT CONTROLLER CONTAINER */}
-      <form onSubmit={onSubmit} className="w-full">
+      <form onSubmit={onSubmit} className="w-full space-y-2">
         <div
           className={`flex bg-theme-panel border border-theme-border rounded-2xl focus-within:border-theme-accent/60 transition-all duration-200 p-2 ${
             isExpanded
@@ -213,7 +225,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
               : "flex-row items-center gap-2"
           }`}
         >
-          {/* Top/Center Workspace Row: Contains Textarea */}
           <div
             className={`w-full ${isExpanded ? "mb-2" : "flex items-center"}`}
           >
@@ -237,9 +248,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
             />
           </div>
 
-          {/* Action Button Controls */}
           {isExpanded ? (
-            /* --- ACTION BAR VIEW (Stacked Below) --- */
             <div className="flex items-center justify-between pt-1 px-1 w-full border-t border-theme-border/20">
               <button
                 type="button"
@@ -271,7 +280,6 @@ export const MessageForm: React.FC<MessageFormProps> = ({
               </button>
             </div>
           ) : (
-            /* --- INLINE VIEW (Single Baseline Row) --- */
             <>
               <button
                 type="button"
@@ -310,6 +318,70 @@ export const MessageForm: React.FC<MessageFormProps> = ({
               </button>
             </>
           )}
+        </div>
+
+        {/* BOTTOM CONFIGURATION BAR: Revamped Sleek Pills */}
+        <div className="flex items-center gap-2 px-1 pt-1">
+          {/* Engine Selection Pill */}
+          <div className="relative flex items-center bg-theme-panel/50 hover:bg-theme-panel border border-theme-border/80 hover:border-theme-accent/40 rounded-xl px-2.5 py-1 transition-all shadow-2xs group cursor-pointer">
+            <Cpu className="w-3.5 h-3.5 text-theme-accent/80 mr-1.5 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold tracking-wider text-theme-muted/70 leading-none mb-0.5">
+                Engine
+              </span>
+              <select
+                value={currentProvider}
+                onChange={(e) => setProvider(e.target.value as ProviderType)}
+                className="appearance-none bg-transparent text-xs text-theme-text font-medium outline-none pr-5 cursor-pointer leading-tight"
+              >
+                {(Object.keys(settings.providers) as ProviderType[]).map(
+                  (p) => (
+                    <option
+                      key={p}
+                      value={p}
+                      className="bg-theme-bg text-theme-text text-xs"
+                    >
+                      {providerLabels[p]}
+                    </option>
+                  ),
+                )}
+              </select>
+            </div>
+            <ChevronDown className="w-3 h-3 text-theme-muted group-hover:text-theme-text absolute right-2 pointer-events-none transition-colors" />
+          </div>
+
+          {/* Model Selection Pill */}
+          <div className="relative flex items-center bg-theme-panel/50 hover:bg-theme-panel border border-theme-border/80 hover:border-theme-accent/40 rounded-xl px-2.5 py-1 transition-all shadow-2xs group cursor-pointer">
+            <Sparkles className="w-3.5 h-3.5 text-theme-accent/80 mr-1.5 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold tracking-wider text-theme-muted/70 leading-none mb-0.5">
+                Model
+              </span>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={availableModels.length === 0}
+                className="appearance-none bg-transparent text-xs text-theme-accent font-mono font-medium outline-none pr-5 cursor-pointer leading-tight disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {availableModels.length > 0 ? (
+                  availableModels.map((m) => (
+                    <option
+                      key={m}
+                      value={m}
+                      className="bg-theme-bg text-theme-text font-mono text-xs"
+                    >
+                      {m}
+                    </option>
+                  ))
+                ) : (
+                  <option className="bg-theme-bg text-theme-muted font-mono text-xs">
+                    No models ready
+                  </option>
+                )}
+              </select>
+            </div>
+            <ChevronDown className="w-3 h-3 text-theme-muted group-hover:text-theme-text absolute right-2 pointer-events-none transition-colors" />
+          </div>
         </div>
       </form>
     </div>
