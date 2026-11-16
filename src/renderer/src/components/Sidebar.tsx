@@ -9,9 +9,9 @@ import {
   Braces,
   MoreVertical,
 } from "lucide-react";
-import { ChatSession } from "../utils/db";
 import { SettingsModal } from "./SettingsModal";
-import { exportToMarkdown, exportToJSON } from "../utils/exporter";
+import { ChatSession } from "@renderer/utils/db";
+import { exportToJSON, exportToMarkdown } from "@renderer/utils/exporter";
 
 interface SidebarProps {
   isOpen: boolean;
