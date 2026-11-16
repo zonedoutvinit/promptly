@@ -1,28 +1,28 @@
 # Promptly
 
-**Promptly** is a high-performance, cross-platform utility application designed to provide a unified, multi-model interface for interacting with both local and cloud-based Large Language Models (LLMs). Built with Electron, it offers a seamless and private environment to manage, compare, and switch between your favorite AI models.
+**Promptly** is a high-performance, cross-platform desktop application designed to provide a unified, multi-model interface for interacting with both local and cloud-based Large Language Models (LLMs). Built with Electron, React, TypeScript, and Tailwind CSS v4, it offers a fast, private environment to manage, compare, and switch between your favorite AI engines seamlessly.
 
 ## ✨ Key Features
 
-* **Universal Multi-Model Interface:** A single, streamlined hub for interacting with **Ollama, LM Studio, ChatGPT, Gemini,** and more.
-* **Hybrid Workflow:** Easily toggle between private, on-device local models and powerful cloud-based APIs within one interface.
-* **Privacy-First:** Prioritize your data security by running models locally. API keys for cloud providers are encrypted at rest.
-* **Smart Context Management:** Maintain focus and optimize performance with **Context Pinning** and **Pruning**.
-* **Intelligent Interaction:** Improve your productivity with dynamic follow-up suggestions and refined AI response handling.
-* **Cross-Platform:** Built with Node.js/Electron for consistent, snappy performance across Windows, macOS, and Linux.
+- **Universal Multi-Model Interface:** A single, streamlined hub for interacting with **Ollama, Google Gemini, OpenAI, LM Studio,** and custom OpenAI-compatible endpoints.
+- **Quick-Switch Engine & Model Pills:** Effortlessly toggle between local and cloud engines or swap active models directly from the refined pill controls right beneath the prompt input box.
+- **Privacy-First & OS-Level Encryption:** Prioritize your data security by running models locally without API keys. Cloud provider API keys are encrypted at rest using Electron's native OS keychain integration (`safeStorage`), complete with graceful fallbacks for headless or minimal Linux environments.
+- **Smart Context Management:** Maintain conversation focus, stay within token limits, and optimize model performance with **Context Pinning**, **Pruning**, and **Custom Personas**.
+- **Web Search & Dynamic Thinking States:** Enrich responses with integrated web search context injection, live reasoning/thinking blocks, and checkpoint regeneration.
+- **Cross-Platform:** Built with `electron-vite` for consistent, snappy performance across Windows, macOS, and Linux.
 
 ---
 
 ## 🛠️ Requirements
 
-* **Node.js:** v24+
-* **npm:** Latest
+- **Node.js:** v24+
+- **npm:** Latest
 
-## 📥 Installation
+## 📥 Installation & Development
 
 ```bash
 # Clone the repository
-git clone https://github.com/zonedoutvinit/promptly.git
+git clone [https://github.com/zonedoutvinit/promptly.git](https://github.com/zonedoutvinit/promptly.git)
 
 # Navigate to the project
 cd promptly
@@ -30,33 +30,37 @@ cd promptly
 # Install dependencies
 npm install
 
-# Run the application
-npm start
-
+# Start the development server
+npm run dev
 ```
 
 ## 🏗️ Build for Distribution
 
-To generate native installers (`.deb`, `.rpm`, `.dmg`, `.exe`) for your platform:
+To compile the source code into `/out` or package native installers (`.AppImage`, `.dmg`, `.exe`) for your platform:
 
 ```bash
+# Compile production source files only (outputs to /out)
+npm run build
+
+# Build and package native desktop installers (outputs to /dist)
 npm run dist
 
 ```
 
-*Artifacts will be generated in the `/dist` folder.*
+_Packaged artifacts and auto-updater metadata will be generated in the `/dist` folder._
 
 ---
 
 ## 💡 Usage
 
-1. **Launch:** Open the application via your system’s application menu.
+1. **Launch:** Open the application via your system’s application menu or run `npm run dev` in development.
 2. **Configure:** Navigate to **Settings** to:
-* Connect your local LLM providers (e.g., Ollama or LM Studio).
-* Enter and securely encrypt your cloud API keys.
 
+- Connect local LLM providers (e.g., Ollama at `http://localhost:11434`—no API key required).
+- Enter and securely encrypt your cloud API keys (e.g., Google Gemini, OpenAI).
+- Customize system personas and context preferences.
 
-3. **Prompt:** Start interacting with your chosen models. Use the context tools to pin important threads or prune irrelevant data to maintain conversation focus.
+3. **Prompt:** Use the **Engine** and **Model** pills directly below the chat input to pick your active model and start prompting. Use message controls to pin key context, prune noise, or regenerate from checkpoints.
 
 ---
 
