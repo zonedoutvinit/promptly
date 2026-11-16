@@ -1,7 +1,7 @@
 // src/components/PromptOptions.tsx
 import React, { useState, useRef } from "react";
-import { genericOptions } from "../utils/chatHelpers";
 import { ChevronLeft, ChevronRight, Edit3 } from "lucide-react";
+import { genericOptions } from "@renderer/utils/chatHelpers";
 
 interface PromptOptionsProps {
   activeTab: "dynamic" | "generic";
