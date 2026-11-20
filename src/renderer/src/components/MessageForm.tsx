@@ -16,6 +16,7 @@ import {
   Loader2,
   Cpu,
   ChevronDown,
+  Columns2,
 } from "lucide-react";
 
 interface MessageFormProps {
@@ -50,6 +51,9 @@ export const MessageForm: React.FC<MessageFormProps> = ({
     model,
     availableModels,
     setModel,
+    workspaceEnabled = false,
+    setWorkspaceEnabled,
+    activeWorkspaceSelection,
   } = useChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -110,7 +114,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
   }, [input]);
 
   useEffect(() => {
@@ -131,30 +135,33 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   };
 
   const isExpanded =
-    input.length > 0 && (input.includes("\n") || input.trim().length > 0);
+    input.length > 0 && (input.includes("\n") || input.trim().length > 28);
+
+  const hasStatusStrip = Boolean(search?.enabled && search.status !== "idle");
 
   return (
-    <div className="space-y-2 w-full bg-theme-bg">
-      {/* System Personas Tray Dock */}
+    <div className="space-y-1.5 w-full bg-theme-bg min-w-0">
+      {/* Compact Single-Row Personas Tray (New Chat Only) */}
       {messages.length === 0 && (
-        <div className="flex flex-col space-y-1">
-          <div className="text-[10px] font-bold text-theme-muted flex items-center gap-1 shrink-0 uppercase tracking-wider pl-1">
-            <Terminal className="w-3 h-3 text-theme-accent" />{" "}
-            <span>System Personas:</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="text-[10px] font-bold text-theme-muted flex items-center gap-1 shrink-0 uppercase tracking-wider">
+            <Terminal className="w-3 h-3 text-theme-accent" />
+            <span className="hidden sm:inline">Personas</span>
           </div>
 
-          <div className="relative w-full overflow-hidden flex items-center group/formCarousel">
+          <div className="relative flex-1 overflow-hidden flex items-center min-w-0">
             <button
               type="button"
               onClick={() => scrollCarousel("left")}
-              className="absolute left-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted hover:text-theme-text rounded-md opacity-70 hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm shadow-xs"
+              aria-label="Scroll personas left"
+              className="absolute left-0 z-10 h-6 w-6 flex items-center justify-center bg-theme-bg/95 border border-theme-border/40 text-theme-muted hover:text-theme-text rounded-md cursor-pointer"
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
+              <ChevronLeft className="w-3 h-3" />
             </button>
 
             <div
               ref={scrollContainerRef}
-              className="flex flex-row flex-nowrap gap-2 items-center overflow-x-auto pb-1 pt-0.5 scrollbar-none w-full px-7"
+              className="flex flex-row flex-nowrap gap-1.5 items-center overflow-x-auto py-0.5 scrollbar-none w-full px-7"
             >
               {customPersonas.map((p) => {
                 const ProfileIcon = IconMap[p.icon] || DefaultIcon;
@@ -164,7 +171,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
                     type="button"
                     disabled={isLoading}
                     onClick={() => injectProfile(p.prompt)}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-theme-panel/40 hover:bg-theme-panel border border-theme-border/60 hover:border-theme-accent/50 rounded-full text-xs text-theme-muted hover:text-theme-text transition cursor-pointer active:scale-95 disabled:opacity-40 font-medium shrink-0 max-w-50"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-theme-panel/40 hover:bg-theme-panel border border-theme-border/60 hover:border-theme-accent/50 rounded-full text-[11px] leading-none text-theme-muted hover:text-theme-text transition-colors cursor-pointer disabled:opacity-40 font-medium shrink-0 max-w-44"
                   >
                     <ProfileIcon className="w-3 h-3 shrink-0" />
                     <span className="truncate">{p.label}</span>
@@ -176,111 +183,57 @@ export const MessageForm: React.FC<MessageFormProps> = ({
             <button
               type="button"
               onClick={() => scrollCarousel("right")}
-              className="absolute right-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted hover:text-theme-text rounded-md opacity-70 hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm shadow-xs"
+              aria-label="Scroll personas right"
+              className="absolute right-0 z-10 h-6 w-6 flex items-center justify-center bg-theme-bg/95 border border-theme-border/40 text-theme-muted hover:text-theme-text rounded-md cursor-pointer"
             >
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3 h-3" />
             </button>
-
-            <div className="absolute top-0 right-0 h-full w-7 bg-linear-to-l from-theme-bg to-transparent pointer-events-none" />
-            <div className="absolute top-0 left-0 h-full w-7 bg-linear-to-r from-theme-bg to-transparent pointer-events-none" />
           </div>
         </div>
       )}
 
-      {/* RAG SEARCH STATUS NOTIFIER BANNER */}
-      {search?.enabled && search.status !== "idle" && (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-theme-panel/30 border border-theme-border/40 rounded-lg text-xs font-mono transition-all animate-fade-in">
-          {search.status === "searching" && (
-            <div className="flex items-center gap-2 text-theme-accent">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Searching web for real-time sources...</span>
-            </div>
-          )}
-          {search.status === "completed" && (
-            <div className="flex items-center gap-2 text-emerald-500">
-              <span className="font-bold">✓</span>
-              <span>
-                Found {search.maxResults} matching sources. Injecting context...
+      {/* Slim Single-Line Status Strip (Workspace + Search) */}
+      {hasStatusStrip && (
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-theme-panel/35 border border-theme-border/50 rounded-lg text-[11px] font-mono min-w-0">
+          <div className="flex items-center gap-3 min-w-0 truncate">
+            {search.status === "searching" && (
+              <span className="inline-flex items-center gap-1.5 text-theme-accent truncate">
+                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                <span className="truncate">Searching web...</span>
               </span>
-            </div>
-          )}
-          {search.status === "error" && (
-            <div className="flex items-center gap-2 text-amber-500">
-              <span className="font-bold">⚠️</span>
-              <span>
-                Web search failed. Proceeding with fallback internal knowledge
-                base...
+            )}
+            {search.status === "completed" && (
+              <span className="inline-flex items-center gap-1.5 text-emerald-500 truncate">
+                <span>✓</span>
+                <span className="truncate">
+                  {search.maxResults} sources injected
+                </span>
               </span>
-            </div>
-          )}
+            )}
+            {search.status === "error" && (
+              <span className="inline-flex items-center gap-1.5 text-amber-500 truncate">
+                <span>⚠️</span>
+                <span className="truncate">Search fallback active</span>
+              </span>
+            )}
+          </div>
         </div>
       )}
 
-      {/* INPUT CONTROLLER CONTAINER */}
-      <form onSubmit={onSubmit} className="w-full space-y-2">
+      {/* Compact Composer + Inline Engine/Model Bar */}
+      <form onSubmit={onSubmit} className="w-full space-y-1.5 min-w-0">
         <div
-          className={`flex bg-theme-panel border border-theme-border rounded-2xl focus-within:border-theme-accent/60 transition-all duration-200 p-2 ${
-            isExpanded
-              ? "flex-col min-h-27.5 justify-between"
-              : "flex-row items-center gap-2"
+          className={`flex bg-theme-panel border rounded-xl transition-colors duration-150 px-2 py-1.5 min-w-0 ${
+            workspaceEnabled
+              ? "border-theme-accent/60"
+              : "border-theme-border focus-within:border-theme-accent/60"
+          } ${
+            isExpanded ? "flex-col gap-1.5" : "flex-row items-center gap-1.5"
           }`}
         >
-          <div
-            className={`w-full ${isExpanded ? "mb-2" : "flex items-center"}`}
-          >
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                isLoading
-                  ? "Engine compiling..."
-                  : "Enter Prompt... (Ctrl+Enter to execute)"
-              }
-              disabled={isLoading}
-              className={`w-full bg-transparent max-h-48 resize-none text-sm focus:outline-none transition text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono ${
-                isExpanded
-                  ? "pt-1.5 px-3 pb-0 leading-relaxed"
-                  : "py-1.5 px-1 leading-5 overflow-hidden block"
-              }`}
-            />
-          </div>
-
-          {isExpanded ? (
-            <div className="flex items-center justify-between pt-1 px-1 w-full border-t border-theme-border/20">
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => setSearchEnabled(!search.enabled)}
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 ${
-                  search.enabled
-                    ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
-                    : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
-                }`}
-              >
-                <Globe className="w-4 h-4" />
-              </button>
-
-              <button
-                type={isLoading ? "button" : "submit"}
-                onClick={isLoading ? () => stopGeneration() : undefined}
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-                  isLoading
-                    ? "bg-red-500/10 text-red-500"
-                    : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
-                }`}
-              >
-                {isLoading ? (
-                  <Square className="w-3.5 h-3.5 fill-current" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-          ) : (
-            <>
+          {/* Left Action Toggles (Inline when compact) */}
+          {!isExpanded && (
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 disabled={isLoading}
@@ -290,97 +243,185 @@ export const MessageForm: React.FC<MessageFormProps> = ({
                     ? "Disable Web Search Integration"
                     : "Enable Web Search Integration"
                 }
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed order-first shrink-0 ml-0.5 ${
+                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
                   search.enabled
                     ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
                     : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
                 }`}
               >
-                <Globe className="w-4 h-4" />
+                <Globe className="w-3.5 h-3.5" />
               </button>
+
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => setWorkspaceEnabled?.(!workspaceEnabled)}
+                title={
+                  workspaceEnabled
+                    ? "Disable Side-by-Side Workspace"
+                    : "Enable Side-by-Side Workspace"
+                }
+                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  workspaceEnabled
+                    ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
+                    : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
+                }`}
+              >
+                <Columns2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Prompt Input */}
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isLoading
+                ? "Engine compiling..."
+                : workspaceEnabled
+                  ? "Create or edit canvas file... (Ctrl+Enter)"
+                  : "Enter prompt... (Ctrl+Enter)"
+            }
+            disabled={isLoading}
+            className={`w-full min-w-0 bg-transparent max-h-40 resize-none text-xs sm:text-sm focus:outline-none text-theme-text placeholder-theme-muted disabled:opacity-40 font-mono leading-5 ${
+              isExpanded ? "px-1.5 py-1" : "px-1.5 py-1 overflow-y-auto"
+            }`}
+          />
+
+          {/* Expanded Bottom Action Row vs Compact Right Submit Button */}
+          {isExpanded ? (
+            <div className="flex items-center justify-between pt-1 border-t border-theme-border/30 w-full">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => setSearchEnabled(!search.enabled)}
+                  title={
+                    search.enabled
+                      ? "Disable Web Search Integration"
+                      : "Enable Web Search Integration"
+                  }
+                  className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-30 ${
+                    search.enabled
+                      ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
+                      : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => setWorkspaceEnabled?.(!workspaceEnabled)}
+                  title={
+                    workspaceEnabled
+                      ? "Disable Side-by-Side Workspace"
+                      : "Enable Side-by-Side Workspace"
+                  }
+                  className={`h-7 px-2 rounded-lg flex items-center gap-1 text-[11px] font-mono transition-colors cursor-pointer disabled:opacity-30 ${
+                    workspaceEnabled
+                      ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30 font-semibold"
+                      : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
+                  }`}
+                >
+                  <Columns2 className="w-3.5 h-3.5" />
+                  <span>Workspace</span>
+                </button>
+              </div>
 
               <button
                 type={isLoading ? "button" : "submit"}
                 onClick={isLoading ? () => stopGeneration() : undefined}
                 disabled={!isLoading && input.trim().length === 0}
                 title={isLoading ? "Stop Execution" : "Send Prompt"}
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed shrink-0 mr-0.5 ${
+                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
                   isLoading
-                    ? "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
+                    ? "bg-red-500/15 text-red-500 hover:bg-red-500 hover:text-white"
                     : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
                 }`}
               >
                 {isLoading ? (
-                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <Square className="w-3 h-3 fill-current" />
                 ) : (
-                  <Send className="w-4 h-4" />
+                  <Send className="w-3.5 h-3.5" />
                 )}
               </button>
-            </>
+            </div>
+          ) : (
+            <button
+              type={isLoading ? "button" : "submit"}
+              onClick={isLoading ? () => stopGeneration() : undefined}
+              disabled={!isLoading && input.trim().length === 0}
+              title={isLoading ? "Stop Execution" : "Send Prompt"}
+              className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                isLoading
+                  ? "bg-red-500/15 text-red-500 hover:bg-red-500 hover:text-white"
+                  : "bg-theme-accent text-theme-bg hover:bg-theme-accent-hover"
+              }`}
+            >
+              {isLoading ? (
+                <Square className="w-3 h-3 fill-current" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+            </button>
           )}
         </div>
 
-        {/* BOTTOM CONFIGURATION BAR: Revamped Sleek Pills */}
-        <div className="flex items-center gap-2 px-1 pt-1">
-          {/* Engine Selection Pill */}
-          <div className="relative flex items-center bg-theme-panel/50 hover:bg-theme-panel border border-theme-border/80 hover:border-theme-accent/40 rounded-xl px-2.5 py-1 transition-all shadow-2xs group cursor-pointer">
-            <Cpu className="w-3.5 h-3.5 text-theme-accent/80 mr-1.5 shrink-0" />
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold tracking-wider text-theme-muted/70 leading-none mb-0.5">
-                Engine
-              </span>
-              <select
-                value={currentProvider}
-                onChange={(e) => setProvider(e.target.value as ProviderType)}
-                className="appearance-none bg-transparent text-xs text-theme-text font-medium outline-none pr-5 cursor-pointer leading-tight"
-              >
-                {(Object.keys(settings.providers) as ProviderType[]).map(
-                  (p) => (
-                    <option
-                      key={p}
-                      value={p}
-                      className="bg-theme-bg text-theme-text text-xs"
-                    >
-                      {providerLabels[p]}
-                    </option>
-                  ),
-                )}
-              </select>
-            </div>
-            <ChevronDown className="w-3 h-3 text-theme-muted group-hover:text-theme-text absolute right-2 pointer-events-none transition-colors" />
+        {/* Single-Row Engine & Model Selector Strip */}
+        <div className="flex items-center gap-1.5 px-0.5 flex-wrap">
+          <div className="relative inline-flex items-center bg-theme-panel/45 hover:bg-theme-panel border border-theme-border/70 rounded-lg pl-2 pr-6 py-1 transition-colors cursor-pointer">
+            <Cpu className="w-3 h-3 text-theme-accent/80 mr-1.5 shrink-0" />
+            <select
+              aria-label="Engine"
+              value={currentProvider}
+              onChange={(e) => setProvider(e.target.value as ProviderType)}
+              className="appearance-none bg-transparent text-[11px] text-theme-text font-medium outline-none cursor-pointer leading-none"
+            >
+              {(Object.keys(settings.providers) as ProviderType[]).map((p) => (
+                <option
+                  key={p}
+                  value={p}
+                  className="bg-theme-bg text-theme-text text-xs"
+                >
+                  {providerLabels[p]}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-3 h-3 text-theme-muted absolute right-1.5 pointer-events-none" />
           </div>
 
-          {/* Model Selection Pill */}
-          <div className="relative flex items-center bg-theme-panel/50 hover:bg-theme-panel border border-theme-border/80 hover:border-theme-accent/40 rounded-xl px-2.5 py-1 transition-all shadow-2xs group cursor-pointer">
-            <Sparkles className="w-3.5 h-3.5 text-theme-accent/80 mr-1.5 shrink-0" />
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold tracking-wider text-theme-muted/70 leading-none mb-0.5">
-                Model
-              </span>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                disabled={availableModels.length === 0}
-                className="appearance-none bg-transparent text-xs text-theme-accent font-mono font-medium outline-none pr-5 cursor-pointer leading-tight disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {availableModels.length > 0 ? (
-                  availableModels.map((m) => (
-                    <option
-                      key={m}
-                      value={m}
-                      className="bg-theme-bg text-theme-text font-mono text-xs"
-                    >
-                      {m}
-                    </option>
-                  ))
-                ) : (
-                  <option className="bg-theme-bg text-theme-muted font-mono text-xs">
-                    No models ready
+          <div className="relative inline-flex items-center bg-theme-panel/45 hover:bg-theme-panel border border-theme-border/70 rounded-lg pl-2 pr-6 py-1 transition-colors cursor-pointer max-w-52">
+            <Sparkles className="w-3 h-3 text-theme-accent/80 mr-1.5 shrink-0" />
+            <select
+              aria-label="Model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              disabled={availableModels.length === 0}
+              className="appearance-none bg-transparent text-[11px] text-theme-accent font-mono font-medium outline-none cursor-pointer leading-none truncate disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {availableModels.length > 0 ? (
+                availableModels.map((m) => (
+                  <option
+                    key={m}
+                    value={m}
+                    className="bg-theme-bg text-theme-text font-mono text-xs"
+                  >
+                    {m}
                   </option>
-                )}
-              </select>
-            </div>
-            <ChevronDown className="w-3 h-3 text-theme-muted group-hover:text-theme-text absolute right-2 pointer-events-none transition-colors" />
+                ))
+              ) : (
+                <option className="bg-theme-bg text-theme-muted font-mono text-xs">
+                  No models ready
+                </option>
+              )}
+            </select>
+            <ChevronDown className="w-3 h-3 text-theme-muted absolute right-1.5 pointer-events-none" />
           </div>
         </div>
       </form>

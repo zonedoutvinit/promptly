@@ -9,6 +9,14 @@ import {
 } from "./utils/db";
 import { decryptKey, encryptKey } from "./utils/crypto";
 import { searchWeb } from "./service/webSearch";
+import {
+  WorkspaceArtifact,
+  ArtifactVersion,
+  getArtifactsBySession,
+  saveArtifact,
+  deleteArtifactFromDB,
+} from "./utils/db";
+import { SelectionRange } from "./components/WorkspaceCanvas";
 
 export type SearchStatus = "idle" | "searching" | "completed" | "error";
 
@@ -107,6 +115,36 @@ interface ChatState {
   // Actions
   setSearchEnabled: (enabled: boolean) => void;
   setSearchMaxResults: (count: number) => void;
+
+  workspaceEnabled: boolean;
+  artifacts: WorkspaceArtifact[];
+  activeArtifactId: string | null;
+  activeWorkspaceSelection: SelectionRange | null;
+
+  setWorkspaceEnabled: (enabled: boolean) => void;
+  setActiveArtifact: (id: string | null) => void;
+  setActiveWorkspaceSelection: (selection: SelectionRange | null) => void;
+  loadArtifactsForSession: (sessionId: string) => Promise<void>;
+  createWorkspaceArtifact: (
+    title?: string,
+    language?: string,
+    content?: string,
+    source?: "user" | "assistant" | "preprocess",
+  ) => Promise<WorkspaceArtifact | null>;
+  updateWorkspaceArtifact: (updated: WorkspaceArtifact) => Promise<void>;
+  deleteWorkspaceArtifact: (id: string) => Promise<void>;
+  buildWorkspacePromptContext: (userPrompt: string) => {
+    systemDirective: string | undefined;
+    enrichedUserPrompt: string;
+  };
+  applyModelWorkspaceOutput: (
+    rawAssistantText: string,
+    source?: "assistant",
+  ) => Promise<{
+    cleanedChatText: string;
+    appliedCount: number;
+    failedPatches: number;
+  }>;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -220,21 +258,44 @@ const getInitialPersonas = (): SystemProfile[] => {
 };
 
 // ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
+export interface WorkspacePayloadContext {
+  enabled: boolean;
+  systemDirective?: string;
+  activeFile?: {
+    title: string;
+    language: string;
+    content: string;
+  } | null;
+  selection?: {
+    startLine: number;
+    endLine: number;
+    selectedText: string;
+  } | null;
+}
+
+const DEFAULT_SYSTEM_PROMPT =
+  "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints.";
+
 const compileTelemetryPayload = (
   messages: ChatMessage[],
   webContext?: string,
+  workspaceContext?: WorkspacePayloadContext,
 ) => {
-  // 1. Unified Thinking System Framework
-  // Replacing persona-specific prompts with a structural directive for the model
+  const isWorkspaceActive = Boolean(workspaceContext?.enabled);
+
+  // 1. Replace default system prompt when Workspace Mode is active
+  const systemContent = isWorkspaceActive
+    ? workspaceContext?.systemDirective || DEFAULT_SYSTEM_PROMPT
+    : DEFAULT_SYSTEM_PROMPT;
+
   const systemContextFrame = [
     {
       role: "system" as const,
-      content:
-        "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints.",
+      content: systemContent,
     },
   ];
 
-  // --- NEW WEB SEARCH CONTEXT PACKAGING ---
+  // 2. Web Search Context Packaging
   const webSearchFrame = webContext
     ? [
         {
@@ -244,7 +305,7 @@ const compileTelemetryPayload = (
       ]
     : [];
 
-  // 2. Pinned Context De-duplication Logic (remains unchanged)
+  // 3. Pinned Context De-duplication Logic
   const pinnedMessages = messages.filter(
     (msg) => msg.isPinned && !msg.isPruned,
   );
@@ -269,7 +330,7 @@ const compileTelemetryPayload = (
       content: `[STATIC ANCHOR CONTEXT - ORIGINAL ROLE: ${msg.role.toUpperCase()}]\n${msg.content}\n[END ANCHOR]`,
     }));
 
-  // 3. Fluid Conversational Extraction (remains unchanged)
+  // 4. Fluid Conversational Extraction
   const conversationalHistory = messages.filter(
     (msg) => !msg.isPinned && !msg.isPruned,
   );
@@ -278,19 +339,38 @@ const compileTelemetryPayload = (
 
   const compiledHistoryContext = conversationalHistory
     .slice(-explicitHistoryTurnLimit)
-    .map(({ role, content }) => {
-      // Prevent giant trace logs or large copy-pastes from crashing local context budgets
-      if (content.length > MAX_CONVERSATIONAL_CHAR_LIMIT) {
-        const head = content.slice(0, 2500);
-        const tail = content.slice(-2500);
-        const managedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated ...]\n\n${tail}`;
-        return { role, content: managedContent };
+    .map(({ role, content }, index, arr) => {
+      let preparedContent = content;
+
+      if (preparedContent.length > MAX_CONVERSATIONAL_CHAR_LIMIT) {
+        const head = preparedContent.slice(0, 2500);
+        const tail = preparedContent.slice(-2500);
+        preparedContent = `${head}\n\n[... TELEMETRY NOTICE: Data stream center-truncated ...]\n\n${tail}`;
       }
-      return { role, content };
+
+      // Enrich ONLY the latest user message with active workspace file/selection context
+      const isLastMessage = index === arr.length - 1;
+      if (isWorkspaceActive && isLastMessage && role === "user") {
+        const file = workspaceContext?.activeFile;
+        if (file) {
+          const selectionPart = workspaceContext?.selection
+            ? `\n[USER SELECTED LINES ${workspaceContext.selection.startLine}-${workspaceContext.selection.endLine}]:\n\`\`\`${file.language}\n${workspaceContext.selection.selectedText}\n\`\`\`\n`
+            : "";
+
+          preparedContent = `[ACTIVE WORKSPACE FILE: "${file.title}" | Language: ${file.language}]\n\`\`\`${file.language}\n${file.content}\n\`\`\`${selectionPart}\nUser Request: ${preparedContent}`;
+        } else {
+          preparedContent = `[WORKSPACE MODE: No active file open yet. Create one with <artifact_create>.]\n\nUser Request: ${preparedContent}`;
+        }
+      }
+
+      return { role, content: preparedContent };
     });
 
-  // 4. Dynamic Recency Behavioral Reminder
-  if (compiledHistoryContext.length >= explicitHistoryTurnLimit) {
+  // 5. Dynamic Recency Behavioral Reminder (skip in Workspace Mode so XML formatting isn't distracted)
+  if (
+    !isWorkspaceActive &&
+    compiledHistoryContext.length >= explicitHistoryTurnLimit
+  ) {
     compiledHistoryContext.splice(compiledHistoryContext.length - 1, 0, {
       role: "system" as const,
       content: `[RECALL: Continue analyzing your response with logical, step-by-step reasoning.]`,
@@ -317,6 +397,36 @@ interface StreamingConfig {
   webContext?: string;
 }
 
+// Helper to build WorkspacePayloadContext from store state
+const getWorkspacePayloadContext = (
+  get: () => any,
+): WorkspacePayloadContext => {
+  const state = get();
+  const enabled = Boolean(state.workspaceEnabled);
+  if (!enabled) {
+    return { enabled: false };
+  }
+
+  const artifacts: WorkspaceArtifact[] = state.artifacts || [];
+  const activeArtifact =
+    artifacts.find((a) => a.id === state.activeArtifactId) ||
+    artifacts[0] ||
+    null;
+
+  return {
+    enabled: true,
+    systemDirective: WORKSPACE_SYSTEM_DIRECTIVE,
+    activeFile: activeArtifact
+      ? {
+          title: activeArtifact.title,
+          language: activeArtifact.language,
+          content: activeArtifact.content,
+        }
+      : null,
+    selection: state.activeWorkspaceSelection || null,
+  };
+};
+
 const executeStreamingInference = async ({
   sessionId,
   historyForTelemetry,
@@ -329,6 +439,8 @@ const executeStreamingInference = async ({
   const { model, settings } = get();
   const provider = settings.currentProvider;
   const config = settings.providers[provider];
+
+  let wasAborted = false;
 
   try {
     // 1. Setup Request Authorization & Routing
@@ -348,10 +460,16 @@ const executeStreamingInference = async ({
         ? "https://generativelanguage.googleapis.com/v1beta/openai/v1/chat/completions"
         : `${config.baseUrl}/v1/chat/completions`;
 
-    // 2. Assemble Provider-Specific Payloads
+    // 2. Assemble Provider-Specific Payloads (with Workspace Context)
+    const workspaceContext = getWorkspacePayloadContext(get);
+
     const payload: Record<string, any> = {
       model,
-      messages: compileTelemetryPayload(historyForTelemetry, webContext),
+      messages: compileTelemetryPayload(
+        historyForTelemetry,
+        webContext,
+        workspaceContext,
+      ),
       stream: true,
     };
 
@@ -419,7 +537,11 @@ const executeStreamingInference = async ({
 
             const contentChunk =
               JSON.parse(rawJson).choices?.[0]?.delta?.content;
-            if (contentChunk) textAccumulator += contentChunk;
+            if (contentChunk) {
+              textAccumulator += contentChunk;
+              hasUpdate = true;
+            }
+            if (!hasUpdate) continue;
           }
 
           // Centralized reactive state projection
@@ -455,22 +577,97 @@ const executeStreamingInference = async ({
       }
     }
 
-    // 4. Persistence Termination Sync
+    // 4. Post-Stream Workspace Artifact / Patch Application
+    let finalAssistantContent = textAccumulator;
+    let artifactSummary: string | undefined;
+
+    if (
+      workspaceContext.enabled &&
+      typeof get().applyModelWorkspaceOutput === "function" &&
+      textAccumulator.trim()
+    ) {
+      const { cleanedChatText, appliedCount, failedPatches } =
+        await get().applyModelWorkspaceOutput(textAccumulator);
+
+      if (appliedCount > 0 || failedPatches > 0) {
+        finalAssistantContent = cleanedChatText;
+
+        const currentArtifacts = get().artifacts;
+        const latestActive =
+          currentArtifacts.find(
+            (a: WorkspaceArtifact) => a.id === get().activeArtifactId,
+          ) || currentArtifacts[currentArtifacts.length - 1];
+
+        // Immediately sync artifacts & activeArtifactId so Canvas holds the committed item
+        if (appliedCount > 0 && latestActive) {
+          set((state) => ({
+            artifacts:
+              state.artifacts.length > 0 ? state.artifacts : currentArtifacts,
+            activeArtifactId: latestActive.id,
+            workspaceEnabled: true,
+          }));
+        }
+
+        if (appliedCount > 0 && failedPatches === 0) {
+          artifactSummary = latestActive
+            ? `${latestActive.title} (v${latestActive.currentVersion})`
+            : `Applied ${appliedCount} workspace update(s)`;
+        } else if (appliedCount > 0 && failedPatches > 0) {
+          artifactSummary = `${appliedCount} applied, ${failedPatches} search mismatch`;
+        } else {
+          artifactSummary = `Patch search didn't match file`;
+        }
+      }
+    }
+
+    // 5. Persistence Termination Sync
     const matchedSession = get().sessions.find(
       (s: ChatSession) => s.id === sessionId,
     );
+
     if (matchedSession) {
-      await saveSession({ ...matchedSession, updatedAt: Date.now() });
+      const finalizedMessages = [...matchedSession.messages];
+      if (finalizedMessages.length > 0) {
+        finalizedMessages[finalizedMessages.length - 1] = {
+          ...finalizedMessages[finalizedMessages.length - 1],
+          content: finalAssistantContent,
+          thinking: thinkingAccumulator,
+          ...(artifactSummary ? { artifactSummary } : {}),
+          timestamp: Date.now(),
+        };
+      }
+
+      const finalSessionRecord: ChatSession = {
+        ...matchedSession,
+        messages: finalizedMessages,
+        updatedAt: Date.now(),
+      };
+
+      const preservedArtifacts = get().artifacts;
+      const preservedActiveId = get().activeArtifactId;
+
+      await saveSession(finalSessionRecord);
       await get().loadSessionsFromStorage();
+
+      set((state) => ({
+        messages:
+          state.currentSessionId === sessionId
+            ? finalizedMessages
+            : state.messages,
+        artifacts:
+          state.artifacts.length > 0 ? state.artifacts : preservedArtifacts,
+        activeArtifactId: state.activeArtifactId ?? preservedActiveId,
+      }));
     }
   } catch (error: any) {
-    console.log(
-      error.name === "AbortError"
-        ? "Stream connection client terminated."
-        : `Pipeline failure: ${error}`,
-    );
+    if (error?.name === "AbortError") {
+      wasAborted = true;
+      console.log("Stream connection client terminated.");
+    } else {
+      console.log(`Pipeline failure: ${error}`);
+    }
   } finally {
-    // 5. Atomic Global Cleanup Guarantee
+    // 6. Atomic Global Cleanup Guarantee
     set((state) => {
       const controllers = { ...state.abortControllers };
       delete controllers[sessionId];
@@ -479,6 +676,7 @@ const executeStreamingInference = async ({
         ...(state.currentSessionId === sessionId ? { isLoading: false } : {}),
       };
     });
+    void wasAborted;
   }
 };
 
@@ -502,6 +700,198 @@ const formatSearchResults = (
   });
 
   return contextString;
+};
+
+const WORKSPACE_SYSTEM_DIRECTIVE = `You are in Workspace Mode. Put file code/text inside XML tags, and put only a 1-sentence note outside.
+
+To create a new file, follow this exact format:
+<artifact_create title="example.py" language="python">
+def greet(name: str) -> str:
+    return f"Hello, {name}"
+</artifact_create>
+Created example.py with a greeting helper.
+
+To edit the active file, output only exact search/replace patches:
+<artifact_patch>
+<search>
+def greet(name: str) -> str:
+    return f"Hello, {name}"
+</search>
+<replace>
+def greet(name: str, excited: bool = False) -> str:
+    suffix = "!" if excited else ""
+    return f"Hello, {name}{suffix}"
+</replace>
+</artifact_patch>
+Updated greet to support an optional exclamation mark.`;
+
+// Helper: Match <search> block with exact match first, then whitespace-normalized fallback
+function applySearchReplacePatch(
+  sourceContent: string,
+  searchBlock: string,
+  replaceBlock: string,
+): { nextContent: string; matched: boolean } {
+  const normalizedSearch = searchBlock.replace(/\r\n/g, "\n");
+  const normalizedReplace = replaceBlock.replace(/\r\n/g, "\n");
+  const normalizedSource = sourceContent.replace(/\r\n/g, "\n");
+
+  // Pass 1: Exact match
+  if (normalizedSource.includes(normalizedSearch)) {
+    return {
+      nextContent: normalizedSource.replace(
+        normalizedSearch,
+        normalizedReplace,
+      ),
+      matched: true,
+    };
+  }
+
+  // Pass 2: Line-trimmed match (helps 2B models with minor indentation/trailing space drift)
+  const searchLines = normalizedSearch.split("\n");
+  const sourceLines = normalizedSource.split("\n");
+  const replaceLines = normalizedReplace.split("\n");
+
+  if (searchLines.length > 0 && searchLines.every((l) => l.trim() === "")) {
+    return { nextContent: sourceContent, matched: false };
+  }
+
+  for (
+    let startIdx = 0;
+    startIdx <= sourceLines.length - searchLines.length;
+    startIdx++
+  ) {
+    let allMatch = true;
+    for (let offset = 0; offset < searchLines.length; offset++) {
+      if (
+        sourceLines[startIdx + offset].trim() !== searchLines[offset].trim()
+      ) {
+        allMatch = false;
+        break;
+      }
+    }
+
+    if (allMatch) {
+      // Preserve base indentation of first matched line if replace starts cleanly
+      const baseIndent = sourceLines[startIdx].match(/^\s*/)?.[0] || "";
+      const adjustedReplace = replaceLines.map((line, idx) => {
+        if (idx === 0 && !/^\s/.test(line) && baseIndent) {
+          return baseIndent + line;
+        }
+        return line;
+      });
+
+      const updatedLines = [
+        ...sourceLines.slice(0, startIdx),
+        ...adjustedReplace,
+        ...sourceLines.slice(startIdx + searchLines.length),
+      ];
+
+      return {
+        nextContent: updatedLines.join("\n"),
+        matched: true,
+      };
+    }
+  }
+
+  return { nextContent: sourceContent, matched: false };
+}
+
+export const stripHallucinatedArtifactTags = (input: string): string => {
+  return input
+    .replace(/<\/?(?:artifact|artifact_content)[^>]*>/gi, "")
+    .replace(/^```(?:xml|html|markdown|text|python)?\s*$/gim, "")
+    .replace(/^```\s*$/gim, "");
+};
+
+export type WorkspaceLanguage =
+  | "markdown"
+  | "python"
+  | "typescript"
+  | "tsx"
+  | "javascript"
+  | "jsx"
+  | "html"
+  | "css"
+  | "json"
+  | "sql"
+  | "bash"
+  | "rust"
+  | "go";
+
+export const normalizeWorkspaceLanguage = (
+  lang?: string,
+): WorkspaceLanguage => {
+  switch ((lang || "").trim().toLowerCase()) {
+    case "python":
+    case "py":
+      return "python";
+    case "typescript":
+    case "ts":
+      return "typescript";
+    case "tsx":
+      return "tsx";
+    case "javascript":
+    case "js":
+      return "javascript";
+    case "jsx":
+      return "jsx";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "json":
+      return "json";
+    case "sql":
+      return "sql";
+    case "bash":
+    case "sh":
+    case "shell":
+      return "bash";
+    case "rust":
+    case "rs":
+      return "rust";
+    case "go":
+      return "go";
+    default:
+      return "markdown";
+  }
+};
+
+const getExtensionForLanguage = (lang: string): string => {
+  switch (lang.toLowerCase()) {
+    case "python":
+    case "py":
+      return "py";
+    case "typescript":
+    case "ts":
+      return "ts";
+    case "tsx":
+      return "tsx";
+    case "javascript":
+    case "js":
+      return "js";
+    case "jsx":
+      return "jsx";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "json":
+      return "json";
+    case "sql":
+      return "sql";
+    case "bash":
+    case "sh":
+    case "shell":
+      return "sh";
+    case "rust":
+    case "rs":
+      return "rs";
+    case "go":
+      return "go";
+    default:
+      return "md";
+  }
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -970,17 +1360,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: target.messages,
         model: sessionModel,
         isLoading: !!get().abortControllers[id],
+        // Close Canvas by default when switching to a session; user can reopen via toggle or file badge
+        workspaceEnabled: false,
+        artifacts: [],
+        activeArtifactId: null,
+        activeWorkspaceSelection: null,
       });
+
+      // Preload that session's artifacts in the background so they're ready if opened
+      if (typeof get().loadArtifactsForSession === "function") {
+        void get().loadArtifactsForSession(id);
+      }
     }
   },
 
   deleteSession: async (id: string) => {
+    // 1. Delete all workspace artifacts tied to this session from IndexedDB
+    const sessionArtifacts =
+      get().currentSessionId === id
+        ? get().artifacts
+        : typeof getArtifactsBySession === "function"
+          ? await getArtifactsBySession(id)
+          : [];
+
+    if (
+      sessionArtifacts.length > 0 &&
+      typeof deleteArtifactFromDB === "function"
+    ) {
+      await Promise.all(
+        sessionArtifacts.map((artifact: WorkspaceArtifact) =>
+          deleteArtifactFromDB(artifact.id),
+        ),
+      );
+    }
+
+    // 2. Delete the chat session itself and refresh the sidebar list
     await deleteSessionFromDB(id);
     await get().loadSessionsFromStorage();
+
+    // 3. Reset active session & Canvas state if the deleted session was open
     if (get().currentSessionId === id) {
       set(() => ({
         currentSessionId: null,
         messages: [],
+        workspaceEnabled: false,
+        artifacts: [],
+        activeArtifactId: null,
+        activeWorkspaceSelection: null,
         search: {
           enabled: false,
           maxResults: 3,
@@ -1297,5 +1723,336 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set,
       overrides,
     });
+  },
+
+  workspaceEnabled: false,
+  artifacts: [],
+  activeArtifactId: null,
+  activeWorkspaceSelection: null,
+
+  setWorkspaceEnabled: (enabled) => set({ workspaceEnabled: enabled }),
+
+  setActiveArtifact: (id) =>
+    set({ activeArtifactId: id, activeWorkspaceSelection: null }),
+
+  setActiveWorkspaceSelection: (selection) =>
+    set({ activeWorkspaceSelection: selection }),
+
+  loadArtifactsForSession: async (sessionId: string) => {
+    const items = await getArtifactsBySession(sessionId);
+    set((state) => ({
+      artifacts: items,
+      activeArtifactId:
+        state.activeArtifactId &&
+        items.some((a) => a.id === state.activeArtifactId)
+          ? state.activeArtifactId
+          : items[items.length - 1]?.id || null,
+    }));
+  },
+
+  createWorkspaceArtifact: async (
+    title = "untitled.md",
+    language = "markdown",
+    content = "",
+    source = "user",
+  ) => {
+    let sessionId = get().currentSessionId;
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      const newSession: ChatSession = {
+        id: sessionId,
+        title: title,
+        model: get().model || "",
+        messages: [],
+        updatedAt: Date.now(),
+      };
+      await saveSession(newSession);
+      await get().loadSessionsFromStorage();
+      set({ currentSessionId: sessionId });
+    }
+
+    const now = Date.now();
+    const initialVersion: ArtifactVersion = {
+      version: 1,
+      content,
+      timestamp: now,
+      source,
+      summary: source === "user" ? "Created file" : "Generated by model",
+    };
+
+    const artifact: WorkspaceArtifact = {
+      id: crypto.randomUUID(),
+      sessionId,
+      title,
+      language,
+      type: "editor",
+      content,
+      versions: [initialVersion],
+      currentVersion: 1,
+      updatedAt: now,
+    };
+
+    await saveArtifact(artifact);
+    set((state) => ({
+      artifacts: [...state.artifacts, artifact],
+      activeArtifactId: artifact.id,
+      workspaceEnabled: true,
+    }));
+
+    return artifact;
+  },
+
+  updateWorkspaceArtifact: async (updated: WorkspaceArtifact) => {
+    await saveArtifact(updated);
+    set((state) => ({
+      artifacts: state.artifacts.map((a) =>
+        a.id === updated.id ? updated : a,
+      ),
+    }));
+  },
+
+  deleteWorkspaceArtifact: async (id: string) => {
+    await deleteArtifactFromDB(id);
+    set((state) => {
+      const remaining = state.artifacts.filter((a) => a.id !== id);
+      return {
+        artifacts: remaining,
+        activeArtifactId:
+          state.activeArtifactId === id
+            ? remaining[remaining.length - 1]?.id || null
+            : state.activeArtifactId,
+      };
+    });
+  },
+
+  buildWorkspacePromptContext: (userPrompt: string) => {
+    const {
+      workspaceEnabled,
+      artifacts,
+      activeArtifactId,
+      activeWorkspaceSelection,
+    } = get();
+    if (!workspaceEnabled) {
+      return { systemDirective: undefined, enrichedUserPrompt: userPrompt };
+    }
+
+    const activeArtifact =
+      artifacts.find((a) => a.id === activeArtifactId) || artifacts[0] || null;
+
+    if (!activeArtifact) {
+      return {
+        systemDirective: WORKSPACE_SYSTEM_DIRECTIVE,
+        enrichedUserPrompt: `[WORKSPACE MODE: No active file open yet. Create one with <artifact_create>.]\n\nUser Request: ${userPrompt}`,
+      };
+    }
+
+    const selectionBlock = activeWorkspaceSelection
+      ? `\n[USER SELECTED LINES ${activeWorkspaceSelection.startLine}-${activeWorkspaceSelection.endLine}]:\n\`\`\`${activeArtifact.language}\n${activeWorkspaceSelection.selectedText}\n\`\`\`\n`
+      : "";
+
+    const enrichedUserPrompt = `[ACTIVE WORKSPACE FILE: "${activeArtifact.title}" | Language: ${activeArtifact.language}]
+  \`\`\`${activeArtifact.language}
+  ${activeArtifact.content}
+  \`\`\`${selectionBlock}
+  User Request: ${userPrompt}`;
+
+    return {
+      systemDirective: WORKSPACE_SYSTEM_DIRECTIVE,
+      enrichedUserPrompt,
+    };
+  },
+
+  applyModelWorkspaceOutput: async (rawAssistantText: string) => {
+    const { workspaceEnabled, artifacts } = get();
+    if (!workspaceEnabled) {
+      return {
+        cleanedChatText: rawAssistantText,
+        appliedCount: 0,
+        failedPatches: 0,
+      };
+    }
+
+    // 1. Unwrap markdown fences around artifact tags & <artifact_content> wrappers
+    const normalizedText = rawAssistantText
+      .replace(
+        /```(?:xml|html|markdown|text)?\s*(<(?:artifact_create|artifact_patch)[\s\S]*?)```/gi,
+        "$1",
+      )
+      .replace(/<artifact_content[^>]*>([\s\S]*?)<\/artifact_content>/gi, "$1");
+
+    let cleanedText = normalizedText;
+    let appliedCount = 0;
+    let failedPatches = 0;
+
+    // 2. Handle <artifact_create title="..." language="...">...</artifact_create>
+    const createRegex =
+      /<artifact_create(?:\s+title="([^"]*)")?(?:\s+language="([^"]*)")?>([\s\S]*?)<\/artifact_create>/gi;
+
+    const creations: Array<{
+      title: string;
+      language: string;
+      content: string;
+    }> = [];
+    let createMatch: RegExpExecArray | null;
+
+    while ((createMatch = createRegex.exec(normalizedText)) !== null) {
+      const cleanBody = stripHallucinatedArtifactTags(createMatch[3] || "")
+        .replace(/^\n+/, "")
+        .replace(/\n+$/, "");
+
+      creations.push({
+        title: (
+          createMatch[1] ||
+          `artifact-${artifacts.length + creations.length + 1}.md`
+        ).trim(),
+        language: (createMatch[2] || "markdown").trim(),
+        content: cleanBody,
+      });
+    }
+
+    if (creations.length > 0) {
+      cleanedText = cleanedText.replace(createRegex, "").trim();
+      for (const item of creations) {
+        await get().createWorkspaceArtifact(
+          item.title,
+          item.language,
+          item.content,
+          "assistant",
+        );
+        appliedCount++;
+      }
+    }
+
+    // 3. Handle <artifact_patch><search>...</search><replace>...</replace></artifact_patch>
+    const patchRegex = /<artifact_patch>([\s\S]*?)<\/artifact_patch>/gi;
+    const patches: Array<{ search: string; replace: string }> = [];
+    let patchMatch: RegExpExecArray | null;
+
+    while ((patchMatch = patchRegex.exec(normalizedText)) !== null) {
+      const inner = patchMatch[1];
+      const searchMatch = /<search>([\s\S]*?)<\/search>/i.exec(inner);
+      const replaceMatch = /<replace>([\s\S]*?)<\/replace>/i.exec(inner);
+
+      if (searchMatch && replaceMatch) {
+        patches.push({
+          search: stripHallucinatedArtifactTags(searchMatch[1])
+            .replace(/^\n/, "")
+            .replace(/\n$/, ""),
+          replace: stripHallucinatedArtifactTags(replaceMatch[1])
+            .replace(/^\n/, "")
+            .replace(/\n$/, ""),
+        });
+      }
+    }
+
+    if (patches.length > 0) {
+      cleanedText = cleanedText.replace(patchRegex, "").trim();
+      const latestArtifacts = get().artifacts;
+      const target =
+        latestArtifacts.find((a) => a.id === get().activeArtifactId) ||
+        latestArtifacts[0];
+
+      if (target) {
+        let workingContent = target.content;
+        let patchAppliedOnTarget = 0;
+
+        for (const p of patches) {
+          const res = applySearchReplacePatch(
+            workingContent,
+            p.search,
+            p.replace,
+          );
+          if (res.matched) {
+            workingContent = res.nextContent;
+            patchAppliedOnTarget++;
+            appliedCount++;
+          } else {
+            failedPatches++;
+          }
+        }
+
+        if (patchAppliedOnTarget > 0) {
+          const nextVersionNum = target.versions.length + 1;
+          const versionEntry: ArtifactVersion = {
+            version: nextVersionNum,
+            content: workingContent,
+            timestamp: Date.now(),
+            source: "assistant",
+            summary: `Applied ${patchAppliedOnTarget} patch(es)`,
+          };
+
+          const updatedArtifact: WorkspaceArtifact = {
+            ...target,
+            content: workingContent,
+            versions: [...target.versions, versionEntry],
+            currentVersion: nextVersionNum,
+            updatedAt: Date.now(),
+          };
+
+          await get().updateWorkspaceArtifact(updatedArtifact);
+        }
+      } else {
+        failedPatches += patches.length;
+      }
+    }
+
+    // 4. Fallback for 2B models: route a fenced code block into the active artifact,
+    // or create a new workspace artifact if none exists yet.
+    const latestAfterTags = get().artifacts;
+    const activeTarget =
+      latestAfterTags.find((a) => a.id === get().activeArtifactId) ||
+      latestAfterTags[0];
+
+    if (appliedCount === 0 && failedPatches === 0) {
+      const fenceRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/;
+      const fenceMatch = fenceRegex.exec(cleanedText);
+
+      if (fenceMatch && fenceMatch[2].trim()) {
+        const lang = (fenceMatch[1] || "markdown").trim();
+        const nextContent = fenceMatch[2].replace(/\n+$/, "");
+        cleanedText = cleanedText.replace(fenceRegex, "").trim();
+
+        if (activeTarget) {
+          const nextVersionNum = activeTarget.versions.length + 1;
+          const versionEntry: ArtifactVersion = {
+            version: nextVersionNum,
+            content: nextContent,
+            timestamp: Date.now(),
+            source: "assistant",
+            summary: "Updated active file (fallback)",
+          };
+
+          const updatedArtifact: WorkspaceArtifact = {
+            ...activeTarget,
+            content: nextContent,
+            versions: [...activeTarget.versions, versionEntry],
+            currentVersion: nextVersionNum,
+            updatedAt: Date.now(),
+          };
+
+          await get().updateWorkspaceArtifact(updatedArtifact);
+          appliedCount++;
+        } else {
+          const ext = getExtensionForLanguage(lang);
+          const title = `artifact-${latestAfterTags.length + 1}.${ext}`;
+          await get().createWorkspaceArtifact(
+            title,
+            lang,
+            nextContent,
+            "assistant",
+          );
+          appliedCount++;
+        }
+      }
+    }
+
+    // 5. Clean leftover tags/fences so prose stays in the chat bubble
+    const finalProse = stripHallucinatedArtifactTags(cleanedText).trim();
+
+    return {
+      cleanedChatText: finalProse,
+      appliedCount,
+      failedPatches,
+    };
   },
 }));

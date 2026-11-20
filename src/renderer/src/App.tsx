@@ -154,9 +154,6 @@ export default function App() {
         <Header
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
-          model={model}
-          availableModels={availableModels}
-          onModelChange={setModel}
         />
 
         {/* CHAT STREAM + TELEMETRY HORIZONTAL ROW SEGREGATOR */}
@@ -183,7 +180,7 @@ export default function App() {
                 onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
               />
 
-              <footer className="p-6 border-t border-theme-border/60 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg animate-in slide-in-from-bottom-4 duration-300">
+              <footer className="p-3 max-w-3xl w-full mx-auto space-y-4 shrink-0 bg-theme-bg animate-in slide-in-from-bottom-4 duration-300">
                 {renderFooterContents()}
               </footer>
             </div>
