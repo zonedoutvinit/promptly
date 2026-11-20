@@ -1,6 +1,6 @@
 // src/components/PromptOptions.tsx
 import React, { useState, useRef } from "react";
-import { ChevronLeft, ChevronRight, Edit3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit3, ChevronDown } from "lucide-react";
 import { genericOptions } from "@renderer/utils/chatHelpers";
 
 interface PromptOptionsProps {
@@ -32,7 +32,7 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
         ? startPosition - scrollAmount
         : startPosition + scrollAmount;
 
-    const duration = 250; // Animation timing in milliseconds
+    const duration = 250;
     let startTime: number | null = null;
 
     // 🚀 Custom interpolation engine running on the graphics card thread
@@ -58,9 +58,9 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
     requestAnimationFrame(animateScroll);
   };
 
-  //  Clicking the chip now stages the text for editing
+  // Clicking the chip stages the text for editing in the footer textarea
   const stagePromptForEdit = (e: React.MouseEvent, promptText: string) => {
-    e.stopPropagation(); // Stop the button's parent bubble click from firing onSubmit
+    e.stopPropagation();
     const footerElement = document.querySelector("footer");
     const textarea = footerElement?.querySelector("textarea");
 
@@ -79,100 +79,103 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-2 transition-colors duration-200 select-none">
-      {/* Control Bar Header */}
-      <div className="flex items-center justify-between border-b border-theme-border/50 pb-1.5">
+    <div className="mb-1 flex flex-col gap-1 select-none min-w-0">
+      {/* Ultra-compact Header Strip */}
+      <div className="flex items-center justify-between px-0.5">
         {hasDynamicPrompts ? (
-          <div className="flex items-center gap-1">
+          <div className="inline-flex items-center gap-1 bg-theme-panel/40 p-0.5 rounded-lg border border-theme-border/40">
             <button
               type="button"
-              onClick={() => setActiveTab("dynamic")}
-              className={`text-[11px] font-bold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab("dynamic");
+                setIsExpanded(true);
+              }}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
                 activeTab === "dynamic"
-                  ? "bg-theme-accent/10 text-theme-accent border border-theme-accent/30"
+                  ? "bg-theme-accent/15 text-theme-accent"
                   : "text-theme-muted hover:text-theme-text"
               }`}
             >
-              Suggested Paths
+              Suggested
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab("generic")}
-              className={`text-[11px] font-bold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab("generic");
+                setIsExpanded(true);
+              }}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
                 activeTab === "generic"
-                  ? "bg-theme-panel text-theme-text border border-theme-border"
+                  ? "bg-theme-panel text-theme-text"
                   : "text-theme-muted hover:text-theme-text"
               }`}
             >
-              Default Paths
+              Defaults
             </button>
           </div>
         ) : (
-          <span className="text-[10px] font-bold text-theme-muted uppercase tracking-wider px-1 py-1">
-            Structural Prompt Toolkit
+          <span className="text-[10px] font-bold text-theme-muted/80 uppercase tracking-wider px-1">
+            Prompt Toolkit
           </span>
         )}
 
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="text-theme-muted hover:text-theme-text p-1 hover:bg-theme-panel rounded-md transition-all cursor-pointer"
+          title={isExpanded ? "Collapse prompts" : "Expand prompts"}
+          className="text-theme-muted hover:text-theme-text p-1 hover:bg-theme-panel/60 rounded-md transition-colors cursor-pointer"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "" : "-rotate-180"}`}
-          >
-            <path
-              fillRule="evenodd"
-              d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <ChevronDown
+            className={`w-3.5 h-3.5 transition-transform ${
+              isExpanded ? "" : "-rotate-90"
+            }`}
+          />
         </button>
       </div>
 
-      {/* ================= HORIZONTAL CAROUSEL TRAY DOCK ================= */}
+      {/* Single-Row Horizontal Chip Strip */}
       {isExpanded && (
-        <div className="relative w-full overflow-hidden flex items-center">
+        <div className="relative w-full overflow-hidden flex items-center min-w-0">
           {activeTab === "dynamic" && hasDynamicPrompts && (
             <button
               type="button"
               onClick={() => scrollCarousel("left")}
-              className="absolute left-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted rounded-md backdrop-blur-sm shadow-md cursor-pointer"
+              aria-label="Scroll prompts left"
+              className="absolute left-0 z-10 h-6 w-6 flex items-center justify-center bg-theme-bg/95 border border-theme-border/50 text-theme-muted hover:text-theme-text rounded-md backdrop-blur-xs cursor-pointer"
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
+              <ChevronLeft className="w-3 h-3" />
             </button>
           )}
 
           <div
             ref={scrollContainerRef}
-            className={`flex flex-row flex-nowrap gap-2 items-center overflow-x-auto pb-1.5 pt-0.5 scrollbar-none w-full ${activeTab === "generic" ? "px-3" : "px-6"}`}
+            className={`flex flex-row flex-nowrap gap-1.5 items-center overflow-x-auto py-0.5 scrollbar-none w-full min-w-0 ${
+              activeTab === "dynamic" && hasDynamicPrompts ? "px-7" : "px-1"
+            }`}
           >
             {activeTab === "dynamic" && hasDynamicPrompts
               ? dynamicSuggestedPrompts.map((promptText, i) => (
-                  <div
+                  <button
                     key={`dynamic-${i}`}
+                    type="button"
                     onClick={(e) => stagePromptForEdit(e, promptText)}
-                    className="flex items-center text-xs bg-theme-accent/5 hover:bg-theme-accent/10 text-theme-accent border border-theme-accent/20 px-3 py-1.5 rounded-xl transition-all duration-300 ease-out shrink-0 font-mono cursor-pointer hover:scale-105 hover:border-theme-accent/40 active:scale-95 animate-chipFade"
+                    className="inline-flex items-center text-[11px] leading-none bg-theme-accent/5 hover:bg-theme-accent/15 text-theme-accent border border-theme-accent/20 hover:border-theme-accent/40 px-2.5 py-1.5 rounded-lg transition-colors shrink-0 font-mono cursor-pointer max-w-60 truncate"
                   >
-                    "{promptText}"
-                  </div>
+                    <span className="truncate">"{promptText}"</span>
+                  </button>
                 ))
               : genericOptions.map((opt, i) => (
                   <div
                     key={`generic-${i}`}
                     onClick={() => onSubmit(opt.prompt)}
-                    className="flex items-center text-xs bg-theme-panel hover:bg-theme-panel/80 text-theme-text/80 hover:text-theme-text border border-theme-border px-3 py-1.5 rounded-xl transition-all duration-300 ease-out shrink-0 font-medium cursor-pointer hover:scale-105 hover:border-theme-text/30 active:scale-95 animate-chipFade"
+                    className="inline-flex items-center gap-1 text-[11px] leading-none bg-theme-panel/60 hover:bg-theme-panel text-theme-text/85 hover:text-theme-text border border-theme-border/70 hover:border-theme-accent/40 pl-2.5 pr-1.5 py-1 rounded-lg transition-colors shrink-0 font-medium cursor-pointer"
                   >
-                    <span>{opt.label}</span>
-                    {/* Inline micro-edit mechanism */}
+                    <span className="truncate max-w-44">{opt.label}</span>
                     <button
                       type="button"
                       onClick={(e) => stagePromptForEdit(e, opt.prompt)}
                       title="Stage option for editing"
-                      className="p-1 rounded-md text-theme-muted hover:text-theme-text hover:bg-black/20 transition shrink-0 cursor-pointer"
+                      className="p-0.5 rounded text-theme-muted hover:text-theme-text hover:bg-theme-bg/60 transition shrink-0 cursor-pointer"
                     >
                       <Edit3 className="w-3 h-3" />
                     </button>
@@ -184,9 +187,10 @@ export const PromptOptions: React.FC<PromptOptionsProps> = ({
             <button
               type="button"
               onClick={() => scrollCarousel("right")}
-              className="absolute right-0 z-10 p-1 bg-theme-bg/90 border border-theme-border/40 text-theme-muted rounded-md backdrop-blur-sm shadow-md cursor-pointer"
+              aria-label="Scroll prompts right"
+              className="absolute right-0 z-10 h-6 w-6 flex items-center justify-center bg-theme-bg/95 border border-theme-border/50 text-theme-muted hover:text-theme-text rounded-md backdrop-blur-xs cursor-pointer"
             >
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3 h-3" />
             </button>
           )}
         </div>
