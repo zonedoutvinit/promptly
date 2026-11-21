@@ -17,6 +17,7 @@ import {
   Cpu,
   ChevronDown,
   Columns2,
+  Paperclip,
 } from "lucide-react";
 
 interface MessageFormProps {
@@ -24,6 +25,7 @@ interface MessageFormProps {
   setInput: (value: string) => void;
   isLoading: boolean;
   onSubmit: (e: React.FormEvent) => void;
+  onImportClick?: () => void;
 }
 
 const IconMap: Record<string, React.ComponentType<any>> = {
@@ -39,6 +41,7 @@ export const MessageForm: React.FC<MessageFormProps> = ({
   setInput,
   isLoading,
   onSubmit,
+  onImportClick,
 }) => {
   const {
     messages,
@@ -234,6 +237,18 @@ export const MessageForm: React.FC<MessageFormProps> = ({
           {/* Left Action Toggles (Inline when compact) */}
           {!isExpanded && (
             <div className="flex items-center gap-1 shrink-0">
+              {onImportClick && (
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={onImportClick}
+                  title="Import HTML, image, or audio file"
+                  className="h-7 w-7 rounded-lg flex items-center justify-center text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Paperclip className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               <button
                 type="button"
                 disabled={isLoading}
@@ -296,6 +311,19 @@ export const MessageForm: React.FC<MessageFormProps> = ({
           {isExpanded ? (
             <div className="flex items-center justify-between pt-1 border-t border-theme-border/30 w-full">
               <div className="flex items-center gap-1">
+                {onImportClick && (
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={onImportClick}
+                    title="Import HTML, image, or audio file"
+                    className="h-7 px-2 rounded-lg flex items-center gap-1 text-[11px] font-mono text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent transition-colors cursor-pointer disabled:opacity-30"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" />
+                    <span>Import</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   disabled={isLoading}
@@ -305,13 +333,14 @@ export const MessageForm: React.FC<MessageFormProps> = ({
                       ? "Disable Web Search Integration"
                       : "Enable Web Search Integration"
                   }
-                  className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-30 ${
+                  className={`h-7 px-2 rounded-lg flex items-center gap-1 text-[11px] font-mono transition-colors cursor-pointer disabled:opacity-30 ${
                     search.enabled
-                      ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30"
+                      ? "bg-theme-accent/15 text-theme-accent border border-theme-accent/30 font-semibold"
                       : "text-theme-muted hover:bg-theme-bg hover:text-theme-text border border-transparent"
                   }`}
                 >
                   <Globe className="w-3.5 h-3.5" />
+                  <span>Search</span>
                 </button>
 
                 <button
