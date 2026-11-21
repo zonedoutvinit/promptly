@@ -1,7 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog, safeStorage } from "electron";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { autoUpdater } from "electron-updater";
+
+const execFileAsync = promisify(execFile);
 
 app.setPath("userData", path.join(app.getPath("appData"), "promptly"));
 
@@ -131,6 +136,230 @@ function createWindow(): void {
     }
   });
 }
+
+function getExtensionForAudio(mimeType?: string, fileName?: string): string {
+  const extMatch = fileName
+    ? /\.(wav|mp3|m4a|ogg|webm|flac)$/i.exec(fileName)
+    : null;
+  if (extMatch) return extMatch[0].toLowerCase();
+
+  switch ((mimeType || "").toLowerCase()) {
+    case "audio/mpeg":
+    case "audio/mp3":
+      return ".mp3";
+    case "audio/mp4":
+    case "audio/m4a":
+    case "audio/x-m4a":
+      return ".m4a";
+    case "audio/ogg":
+      return ".ogg";
+    case "audio/webm":
+      return ".webm";
+    case "audio/flac":
+      return ".flac";
+    default:
+      return ".wav";
+  }
+}
+
+function resolveWhisperModelPath(): string | null {
+  const candidates = [
+    process.env.WHISPER_MODEL_PATH,
+    path.join(os.homedir(), "models", "ggml-base.en.bin"),
+    path.join(os.homedir(), ".cache", "whisper", "ggml-base.en.bin"),
+    "/usr/share/whisper-cpp/models/ggml-base.en.bin",
+  ].filter((p): p is string => Boolean(p && p.trim()));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function stripWhisperTimestamps(raw: string): string {
+  return raw
+    .replace(/\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("whisper_"))
+    .join("\n");
+}
+
+async function runOptionalLocalWhisperCli(
+  audioFilePath: string,
+  outDir: string,
+): Promise<{ text: string; note?: string } | null> {
+  const candidates = ["whisper-cli", "whisper"];
+  for (const bin of candidates) {
+    try {
+      if (bin === "whisper-cli") {
+        const modelPath = resolveWhisperModelPath();
+        if (!modelPath) {
+          return {
+            text: "",
+            note: "whisper-cli found, but no GGML model file was found (set WHISPER_MODEL_PATH or place ggml-base.en.bin in ~/models).",
+          };
+        }
+
+        const { stdout } = await execFileAsync(
+          bin,
+          ["-m", modelPath, "-f", audioFilePath, "--no-timestamps"],
+          { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
+        );
+        return {
+          text: stripWhisperTimestamps(stdout || ""),
+          note: "Transcribed via local whisper-cli.",
+        };
+      }
+
+      await execFileAsync(
+        bin,
+        [
+          audioFilePath,
+          "--model",
+          "base",
+          "--output_format",
+          "txt",
+          "--output_dir",
+          outDir,
+        ],
+        { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
+      );
+      const baseName = path.basename(
+        audioFilePath,
+        path.extname(audioFilePath),
+      );
+      const txtPath = path.join(outDir, `${baseName}.txt`);
+      if (fs.existsSync(txtPath)) {
+        const transcript = await fs.promises.readFile(txtPath, "utf8");
+        await fs.promises.unlink(txtPath).catch(() => {});
+        return { text: transcript, note: "Transcribed via local whisper CLI." };
+      }
+    } catch (err: any) {
+      if (err?.code === "ENOENT") {
+        continue;
+      }
+      return {
+        text: "",
+        note: `Local audio CLI error (${bin}): ${err?.message || String(err)}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+ipcMain.handle(
+  "audio:transcribe",
+  async (
+    _event,
+    payload: { bytes: Uint8Array; mimeType?: string; fileName?: string },
+  ): Promise<{ text: string; confidence?: number; note?: string }> => {
+    if (!payload?.bytes || payload.bytes.length === 0) {
+      return { text: "" };
+    }
+
+    const ext = getExtensionForAudio(payload.mimeType, payload.fileName);
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const tmpAudioFile = path.join(
+      os.tmpdir(),
+      `promptly-audio-${runId}${ext}`,
+    );
+    const tmpOutDir = path.join(os.tmpdir(), `promptly-audio-out-${runId}`);
+
+    try {
+      await fs.promises.mkdir(tmpOutDir, { recursive: true });
+      await fs.promises.writeFile(tmpAudioFile, Buffer.from(payload.bytes));
+
+      const cliResult = await runOptionalLocalWhisperCli(
+        tmpAudioFile,
+        tmpOutDir,
+      );
+      if (cliResult) {
+        return cliResult;
+      }
+
+      return {
+        text: "",
+        note: "No local audio transcription CLI found on system; transcript can be edited manually in Canvas.",
+      };
+    } finally {
+      await fs.promises.unlink(tmpAudioFile).catch(() => {});
+      await fs.promises
+        .rm(tmpOutDir, { recursive: true, force: true })
+        .catch(() => {});
+    }
+  },
+);
+
+function getExtensionForMime(mimeType?: string): string {
+  switch ((mimeType || "").toLowerCase()) {
+    case "image/jpeg":
+    case "image/jpg":
+      return ".jpg";
+    case "image/webp":
+      return ".webp";
+    case "image/gif":
+      return ".gif";
+    case "image/bmp":
+      return ".bmp";
+    case "image/tiff":
+      return ".tif";
+    default:
+      return ".png";
+  }
+}
+
+ipcMain.handle(
+  "ocr:system",
+  async (
+    _event,
+    payload: { bytes: Uint8Array; mimeType?: string },
+  ): Promise<{ text: string; confidence?: number; note?: string }> => {
+    if (!payload?.bytes || payload.bytes.length === 0) {
+      return { text: "" };
+    }
+
+    const ext = getExtensionForMime(payload.mimeType);
+    const tmpFile = path.join(
+      os.tmpdir(),
+      `promptly-ocr-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`,
+    );
+
+    try {
+      await fs.promises.writeFile(tmpFile, Buffer.from(payload.bytes));
+
+      const { stdout } = await execFileAsync(
+        "tesseract",
+        [tmpFile, "stdout", "--psm", "3"],
+        {
+          timeout: 20_000,
+          maxBuffer: 10 * 1024 * 1024,
+        },
+      );
+
+      return {
+        text: stdout || "",
+        note: "Extracted via system Tesseract CLI.",
+      };
+    } catch (err: any) {
+      if (err?.code === "ENOENT") {
+        return {
+          text: "",
+          note: "System tesseract binary not found; falling back to next OCR adapter.",
+        };
+      }
+      return {
+        text: "",
+        note: `System OCR unavailable/failed: ${err?.message || String(err)}`,
+      };
+    } finally {
+      await fs.promises.unlink(tmpFile).catch(() => {});
+    }
+  },
+);
 
 ipcMain.handle(
   "perform-search",

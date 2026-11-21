@@ -34,11 +34,8 @@ interface ChatWindowProps {
       presencePenalty: number;
     },
   ) => void;
-}
-
-export interface StreamSanitizeResult {
-  text: string;
-  activeArtifactAction: string | null;
+  forceWorkspaceOpen?: boolean;
+  inspectedArtifactId?: string | null;
 }
 
 export interface LiveCanvasDraft {
@@ -195,6 +192,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   messagesEndRef,
   onUpdateUserMessage,
   onRegenerateFromCheckpoint,
+  forceWorkspaceOpen = false,
+  inspectedArtifactId = null,
 }) => {
   const {
     currentSessionId,
@@ -209,19 +208,34 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     setActiveWorkspaceSelection,
   } = useChatStore();
 
+  useEffect(() => {
+    if (forceWorkspaceOpen && !workspaceEnabled) {
+      setWorkspaceEnabled?.(true);
+    }
+  }, [forceWorkspaceOpen, workspaceEnabled, setWorkspaceEnabled]);
+
+  useEffect(() => {
+    if (
+      inspectedArtifactId &&
+      artifacts.some((a) => a.id === inspectedArtifactId)
+    ) {
+      setActiveArtifact?.(inspectedArtifactId);
+    }
+  }, [inspectedArtifactId, artifacts, setActiveArtifact]);
+
   const latestAssistantSanitized =
     isLoading &&
     messages.length > 0 &&
     messages[messages.length - 1]?.role === "assistant"
       ? sanitizeChatStreamText(
           messages[messages.length - 1].content,
-          workspaceEnabled,
+          workspaceEnabled || forceWorkspaceOpen,
         )
       : null;
 
   const liveCanvasDraft = latestAssistantSanitized?.liveDraft ?? null;
 
-  const showSplitPane = Boolean(workspaceEnabled);
+  const showSplitPane = Boolean(workspaceEnabled || forceWorkspaceOpen);
 
   const handleOpenArtifactFromBadge = (summary: string) => {
     setWorkspaceEnabled?.(true);
@@ -240,97 +254,108 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
   };
 
+  const hasMessages = messages.length > 0;
+  const showChatStreamPane = !showSplitPane || hasMessages || isLoading;
+
   return (
     <div
       className={`flex-1 flex min-h-0 w-full overflow-hidden bg-theme-bg transition-colors duration-200 ${
-        showSplitPane ? "flex-row" : "flex-col"
+        showSplitPane && showChatStreamPane ? "flex-row" : "flex-col"
       }`}
     >
-      {/* CHAT STREAM PANE */}
-      <main
-        className={`flex-1 overflow-y-auto p-6 min-w-0 transition-all duration-200 ${
-          showSplitPane
-            ? "w-full md:w-[45%] lg:w-[42%] border-r border-theme-border"
-            : "w-full"
-        }`}
-      >
-        <div className="max-w-3xl w-full mx-auto space-y-6 flex flex-col">
-          {/* VIRTUALIZED CONVERSATION PIPELINE */}
-          {messages.map((msg, idx) => {
-            const isLastAssistant =
-              msg.role === "assistant" && idx === messages.length - 1;
+      {/* CHAT STREAM PANE (hidden when inspecting Canvas with zero messages so Canvas gets full width) */}
+      {showChatStreamPane && (
+        <main
+          className={`flex-1 overflow-y-auto p-6 min-w-0 transition-all duration-200 ${
+            showSplitPane
+              ? "w-full md:w-[45%] lg:w-[42%] border-r border-theme-border"
+              : "w-full"
+          }`}
+        >
+          <div className="max-w-3xl w-full mx-auto space-y-6 flex flex-col">
+            {/* VIRTUALIZED CONVERSATION PIPELINE */}
+            {messages.map((msg, idx) => {
+              const isLastAssistant =
+                msg.role === "assistant" && idx === messages.length - 1;
 
-            const sanitized =
-              msg.role === "assistant"
-                ? sanitizeChatStreamText(msg.content, workspaceEnabled)
-                : {
-                    text: msg.content,
-                    activeArtifactAction: null,
-                    liveDraft: null,
-                  };
+              const sanitized =
+                msg.role === "assistant"
+                  ? sanitizeChatStreamText(msg.content, showSplitPane)
+                  : {
+                      text: msg.content,
+                      activeArtifactAction: null,
+                      liveDraft: null,
+                    };
 
-            let displayContent = sanitized.text;
+              let displayContent = sanitized.text;
 
-            // If streaming in Workspace Mode and a fenced code block was emitted,
-            // keep code out of the chat bubble while it streams to the Canvas.
-            if (isLastAssistant && isLoading && workspaceEnabled) {
-              displayContent = displayContent
-                .replace(/```([a-zA-Z0-9_-]*)\n[\s\S]*?(?:```|$)/g, "")
-                .trim();
-            }
+              // If streaming in Workspace Mode and a fenced code block was emitted,
+              // keep code out of the chat bubble while it streams to the Canvas.
+              if (isLastAssistant && isLoading && showSplitPane) {
+                displayContent = displayContent
+                  .replace(/```([a-zA-Z0-9_-]*)\n[\s\S]*?(?:```|$)/g, "")
+                  .trim();
+              }
 
-            const activeArtifactAction =
-              isLastAssistant && isLoading
-                ? sanitized.activeArtifactAction
-                : null;
+              const activeArtifactAction =
+                isLastAssistant && isLoading
+                  ? sanitized.activeArtifactAction
+                  : null;
 
-            // Never render a bubble with no prose, no thinking, and no active stream status
-            if (
-              msg.role === "assistant" &&
-              !displayContent.trim() &&
-              !msg.thinking?.trim() &&
-              !activeArtifactAction
-            ) {
-              return null;
-            }
+              // Never render a bubble with no prose, no thinking, and no active stream status
+              if (
+                msg.role === "assistant" &&
+                !displayContent.trim() &&
+                !msg.thinking?.trim() &&
+                !activeArtifactAction
+              ) {
+                return null;
+              }
 
-            return (
-              <ObservedMessageItem
-                key={idx}
-                msg={{ ...msg, content: displayContent }}
-                idx={idx}
-                isLoading={isLoading}
-                isSplitPane={showSplitPane}
-                activeArtifactAction={activeArtifactAction}
-                onUpdateUserMessage={onUpdateUserMessage}
-                onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
-                onOpenArtifact={handleOpenArtifactFromBadge}
-              />
-            );
-          })}
-
-          {/* Subtle Loading Placeholder */}
-          {isLoading &&
-            (() => {
-              const lastMsg = messages[messages.length - 1];
               return (
-                lastMsg?.role === "assistant" &&
-                !(lastMsg.content ?? "").trim() &&
-                !(lastMsg.thinking ?? "").trim()
+                <ObservedMessageItem
+                  key={idx}
+                  msg={{ ...msg, content: displayContent }}
+                  idx={idx}
+                  isLoading={isLoading}
+                  isSplitPane={showSplitPane}
+                  activeArtifactAction={activeArtifactAction}
+                  onUpdateUserMessage={onUpdateUserMessage}
+                  onRegenerateFromCheckpoint={onRegenerateFromCheckpoint}
+                  onOpenArtifact={handleOpenArtifactFromBadge}
+                />
               );
-            })() && (
-              <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
-                <LoadingDots />
-              </div>
-            )}
+            })}
 
-          <div ref={messagesEndRef} />
-        </div>
-      </main>
+            {/* Subtle Loading Placeholder */}
+            {isLoading &&
+              (() => {
+                const lastMsg = messages[messages.length - 1];
+                return (
+                  lastMsg?.role === "assistant" &&
+                  !(lastMsg.content ?? "").trim() &&
+                  !(lastMsg.thinking ?? "").trim()
+                );
+              })() && (
+                <div className="w-full mr-auto rounded-xl px-4 py-3 flex items-center animate-in fade-in">
+                  <LoadingDots />
+                </div>
+              )}
 
-      {/* SIDE-BY-SIDE WORKSPACE CANVAS PANE */}
+            <div ref={messagesEndRef} />
+          </div>
+        </main>
+      )}
+
+      {/* WORKSPACE CANVAS PANE (full width when no messages, right pane once messages exist) */}
       {showSplitPane && (
-        <aside className="w-full md:w-[55%] lg:w-[58%] h-full min-w-0 flex flex-col">
+        <aside
+          className={`h-full min-w-0 flex flex-col transition-all duration-200 ${
+            showChatStreamPane
+              ? "w-full md:w-[55%] lg:w-[58%]"
+              : "w-full flex-1"
+          }`}
+        >
           <WorkspaceCanvas
             sessionId={currentSessionId || "draft"}
             artifacts={artifacts}

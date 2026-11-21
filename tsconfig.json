@@ -15,12 +15,14 @@
     "paths": {
       "@renderer/*": ["./src/renderer/src/*"],
       "@shared/*": ["./src/shared/*"],
+      "@preprocessing/*": ["./src/preprocessing/*"],
     },
   },
   "include": [
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
+    "src/preprocessing/**/*",
     "src/renderer/src/**/*",
   ],
 }

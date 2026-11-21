@@ -19,6 +19,7 @@ interface SidebarProps {
   sessions: ChatSession[];
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
+  onSelectArtifact?: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onNewChat: () => void;
 }
@@ -29,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sessions,
   currentSessionId,
   onSelectSession,
+  onSelectArtifact,
   onDeleteSession,
   onNewChat,
 }) => {
@@ -57,6 +59,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setActiveMenuSessionId(
       activeMenuSessionId === sessionId ? null : sessionId,
     );
+  };
+
+  const handleRowClick = (session: ChatSession) => {
+    onSelectSession(session.id);
+
+    // If the session carries an artifact ID in metadata/shape, pass it through for inspection
+    const maybeArtifactId = (session as ChatSession & { artifactId?: string })
+      .artifactId;
+    if (maybeArtifactId && onSelectArtifact) {
+      onSelectArtifact(maybeArtifactId);
+    }
   };
 
   return (
@@ -106,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <div
                   key={session.id}
-                  onClick={() => onSelectSession(session.id)}
+                  onClick={() => handleRowClick(session)}
                   className={`group relative flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition text-xs font-medium border ${
                     isActive
                       ? "bg-theme-panel text-theme-accent border-theme-border/80 shadow-xs"

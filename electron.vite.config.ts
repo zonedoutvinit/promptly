@@ -15,6 +15,7 @@ export default defineConfig({
     resolve: {
       alias: {
         "@shared": resolve("src/shared"),
+        "@preprocessing": resolve("src/preprocessing"),
       },
     },
   },
@@ -29,6 +30,7 @@ export default defineConfig({
     resolve: {
       alias: {
         "@shared": resolve("src/shared"),
+        "@preprocessing": resolve("src/preprocessing"),
       },
     },
   },
@@ -45,6 +47,7 @@ export default defineConfig({
       alias: {
         "@renderer": resolve("src/renderer/src"),
         "@shared": resolve("src/shared"),
+        "@preprocessing": resolve("src/preprocessing"),
       },
     },
     plugins: [react(), tailwindcss()],
