@@ -1,6 +1,6 @@
 // src/components/EmptyStateCanvas.tsx
-import React from "react";
 import { Zap } from "lucide-react";
+import React from "react";
 
 export const EmptyStateCanvas: React.FC = () => {
   return (

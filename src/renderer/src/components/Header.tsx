@@ -1,11 +1,7 @@
 // src/components/Header.tsx
-import React from "react";
+import { HeaderProps } from "@renderer/types";
 import { Menu, Zap } from "lucide-react";
-
-interface HeaderProps {
-  isSidebarOpen: boolean;
-  setIsSidebarOpen: (open: boolean) => void;
-}
+import React from "react";
 
 export const Header: React.FC<HeaderProps> = ({
   isSidebarOpen,

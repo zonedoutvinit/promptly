@@ -1,32 +1,25 @@
 // src/components/MessageForm.tsx
-import React, { useRef, useEffect } from "react";
-import { useChatStore, ProviderType } from "../store";
 import {
-  Terminal,
+  BrainCircuit,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
-  PenTool,
   Code,
-  BrainCircuit,
+  Columns2,
+  Cpu,
   Terminal as DefaultIcon,
-  Square,
-  Send,
   Globe,
   Loader2,
-  Cpu,
-  ChevronDown,
-  Columns2,
   Paperclip,
+  PenTool,
+  Send,
+  Sparkles,
+  Square,
+  Terminal,
 } from "lucide-react";
-
-interface MessageFormProps {
-  input: string;
-  setInput: (value: string) => void;
-  isLoading: boolean;
-  onSubmit: (e: React.FormEvent) => void;
-  onImportClick?: () => void;
-}
+import React, { useEffect, useRef } from "react";
+import { useChatStore } from "../store";
+import { MessageFormProps, ProviderType } from "@renderer/types";
 
 const IconMap: Record<string, React.ComponentType<any>> = {
   Sparkles,

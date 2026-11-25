@@ -1,14 +1,14 @@
 // src/components/ContextSidebar.tsx
-import React, { useMemo } from "react";
-import { useChatStore } from "../store";
 import {
-  Pin,
-  Scissors,
   Activity,
-  Layers,
   HelpCircle,
   History,
+  Layers,
+  Pin,
+  Scissors,
 } from "lucide-react";
+import React, { useMemo } from "react";
+import { useChatStore } from "../store";
 
 export const ContextSidebar: React.FC = () => {
   const {

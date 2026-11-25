@@ -1,17 +1,16 @@
 // src/components/SettingsModal.tsx
 import React, { useState, useEffect } from "react";
-import { useChatStore, ProviderType, SystemProfile } from "../store";
+import { useChatStore } from "../store";
 import { Cpu, Palette, Users, X } from "lucide-react";
 import { EngineConfigTab } from "./settings/EngineConfigTab";
 import { PersonasTab } from "./settings/PersonasTab";
 import { AppearanceTab } from "./settings/AppearanceTab";
-
-interface SettingsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-type SettingsTab = "engine" | "appearance" | "personas";
+import {
+  ProviderType,
+  SettingsModalProps,
+  SettingsTab,
+  SystemProfile,
+} from "@renderer/types";
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,

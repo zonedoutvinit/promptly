@@ -1,119 +1,33 @@
 // src/components/WorkspaceCanvas.tsx
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { WorkspaceArtifact, ArtifactVersion } from "../utils/db";
+import { normalizeWorkspaceLanguage } from "@renderer/store";
 import {
-  Plus,
-  X,
-  Copy,
+  ArtifactVersion,
+  LiveCanvasDraft,
+  SelectionRange,
+  WorkspaceArtifact,
+  WorkspaceCanvasProps,
+  WorkspaceLanguage,
+} from "@renderer/types";
+import { computeLineDiff } from "@renderer/utils/streamSanitizers";
+import {
   Check,
-  GitCompare,
-  Save,
-  FileCode2,
   Columns2,
+  Copy,
+  FileCode2,
+  GitCompare,
+  Plus,
+  Save,
+  X,
 } from "lucide-react";
-import { normalizeWorkspaceLanguage, WorkspaceLanguage } from "@renderer/store";
-
-export interface SelectionRange {
-  startLine: number;
-  endLine: number;
-  selectedText: string;
-}
-
-export interface LiveCanvasDraft {
-  mode: "create" | "patch" | "fence";
-  title?: string;
-  language?: string;
-  content: string;
-}
-
-interface WorkspaceCanvasProps {
-  sessionId: string;
-  artifacts: WorkspaceArtifact[];
-  activeArtifactId: string | null;
-  isStreaming?: boolean;
-  liveDraft?: LiveCanvasDraft | null;
-  onSelectArtifact: (id: string) => void;
-  onCreateArtifact: (
-    title?: string,
-    language?: string,
-    content?: string,
-  ) => void;
-  onUpdateArtifact: (updated: WorkspaceArtifact) => void;
-  onDeleteArtifact: (id: string) => void;
-  onSelectionChange?: (selection: SelectionRange | null) => void;
-  onCloseWorkspace: () => void;
-  extraToolbarActions?: React.ReactNode;
-}
-
-interface DiffLine {
-  type: "unchanged" | "added" | "removed";
-  text: string;
-}
-
-function computeLineDiff(oldText: string, newText: string): DiffLine[] {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  const result: DiffLine[] = [];
-
-  let i = 0;
-  let j = 0;
-
-  while (i < oldLines.length || j < newLines.length) {
-    if (
-      i < oldLines.length &&
-      j < newLines.length &&
-      oldLines[i] === newLines[j]
-    ) {
-      result.push({ type: "unchanged", text: oldLines[i] });
-      i++;
-      j++;
-    } else {
-      let foundMatch = false;
-      for (let lookahead = 1; lookahead <= 5; lookahead++) {
-        if (
-          i + lookahead < oldLines.length &&
-          oldLines[i + lookahead] === newLines[j]
-        ) {
-          for (let k = 0; k < lookahead; k++) {
-            result.push({ type: "removed", text: oldLines[i + k] });
-          }
-          i += lookahead;
-          foundMatch = true;
-          break;
-        }
-        if (
-          j + lookahead < newLines.length &&
-          oldLines[i] === newLines[j + lookahead]
-        ) {
-          for (let k = 0; k < lookahead; k++) {
-            result.push({ type: "added", text: newLines[j + k] });
-          }
-          j += lookahead;
-          foundMatch = true;
-          break;
-        }
-      }
-
-      if (!foundMatch) {
-        if (i < oldLines.length) {
-          result.push({ type: "removed", text: oldLines[i] });
-          i++;
-        }
-        if (j < newLines.length) {
-          result.push({ type: "added", text: newLines[j] });
-          j++;
-        }
-      }
-    }
-  }
-  return result;
-}
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
   artifacts,
   activeArtifactId,
   isStreaming = false,
   liveDraft,
+  highlightedCitation = null,
+  onClearHighlightedCitation,
   onSelectArtifact,
   onCreateArtifact,
   onUpdateArtifact,
@@ -142,6 +56,7 @@ export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
   const [selection, setSelection] = useState<SelectionRange | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (liveDraft) {
@@ -184,6 +99,76 @@ export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
     activeArtifact?.content,
     activeArtifact?.currentVersion,
   ]);
+
+  // Locate the cited snippet inside the currently displayed artifact
+  const citedRange = useMemo(() => {
+    if (
+      !highlightedCitation ||
+      !activeArtifact ||
+      highlightedCitation.artifactId !== activeArtifact.id ||
+      !draftContent
+    ) {
+      return null;
+    }
+
+    const needle = highlightedCitation.text.trim();
+    if (!needle) return null;
+
+    let idx = draftContent.indexOf(needle);
+    let matchLen = needle.length;
+
+    if (idx === -1) {
+      // Fallback: match the first non-empty line of the chunk
+      const firstLine = needle
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.length > 0);
+      if (firstLine) {
+        idx = draftContent.indexOf(firstLine);
+        matchLen = firstLine.length;
+      }
+    }
+
+    if (idx === -1) return null;
+
+    const startLine = draftContent.slice(0, idx).split("\n").length;
+    const endLine =
+      startLine +
+      draftContent.slice(idx, idx + matchLen).split("\n").length -
+      1;
+
+    return {
+      startLine,
+      endLine,
+      startChar: idx,
+      endChar: idx + matchLen,
+    };
+  }, [highlightedCitation, activeArtifact, draftContent]);
+
+  // Scroll to and select the cited passage whenever a citation pill is clicked
+  useEffect(() => {
+    if (!highlightedCitation || !citedRange) return;
+
+    setShowDiff(false);
+
+    const frame = requestAnimationFrame(() => {
+      if (editorScrollRef.current) {
+        const targetTop = Math.max(0, (citedRange.startLine - 4) * 20);
+        editorScrollRef.current.scrollTo({
+          top: targetTop,
+          behavior: "smooth",
+        });
+      }
+
+      const el = textareaRef.current;
+      if (el && !el.disabled) {
+        el.focus();
+        el.setSelectionRange(citedRange.startChar, citedRange.endChar);
+      }
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [highlightedCitation?.nonce, citedRange]);
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const nextVal = e.target.value;
@@ -536,6 +521,28 @@ export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
             </div>
           </div>
 
+          {/* Citation Focus Banner */}
+          {highlightedCitation &&
+            activeArtifact?.id === highlightedCitation.artifactId &&
+            !showDiff && (
+              <div className="flex items-center justify-between px-3 py-1 bg-theme-accent/15 border-b border-theme-accent/30 text-[11px] font-mono text-theme-accent">
+                <span>
+                  Cited [cite: {highlightedCitation.citationIndex}]
+                  {citedRange
+                    ? ` · Lines ${citedRange.startLine}–${citedRange.endLine}`
+                    : ""}{" "}
+                  · Match {(highlightedCitation.score * 100).toFixed(0)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onClearHighlightedCitation?.()}
+                  className="hover:underline cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
           {/* Selection Focus Banner */}
           {selection && !showDiff && (
             <div className="flex items-center justify-between px-3 py-1 bg-theme-accent/10 border-b border-theme-accent/25 text-[11px] font-mono text-theme-accent">
@@ -556,8 +563,11 @@ export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
             </div>
           )}
 
-          {/* Main Editor or Diff Body */}
-          <div className="flex-1 relative overflow-auto font-mono text-xs select-text">
+          {/* Main Editor or Diff Body (single outer scroll container) */}
+          <div
+            ref={editorScrollRef}
+            className="flex-1 relative overflow-auto font-mono text-xs select-text"
+          >
             {showDiff ? (
               <div className="p-3 space-y-0.5">
                 {diffLines.map((line, idx) => (
@@ -583,16 +593,31 @@ export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="flex min-h-full">
+              <div className="flex min-h-full items-start">
                 <div
                   aria-hidden="true"
                   className="py-3 px-2.5 text-right text-theme-muted/50 bg-theme-panel/20 border-r border-theme-border/60 select-none shrink-0"
                 >
-                  {Array.from({ length: lineCount }).map((_, idx) => (
-                    <div key={idx} className="leading-5">
-                      {idx + 1}
-                    </div>
-                  ))}
+                  {Array.from({ length: lineCount }).map((_, idx) => {
+                    const lineNum = idx + 1;
+                    const isCitedLine =
+                      citedRange !== null &&
+                      lineNum >= citedRange.startLine &&
+                      lineNum <= citedRange.endLine;
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`leading-5 px-1 rounded-xs transition-colors ${
+                          isCitedLine
+                            ? "bg-theme-accent/25 text-theme-accent font-bold"
+                            : ""
+                        }`}
+                      >
+                        {lineNum}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <textarea
@@ -603,8 +628,10 @@ export const WorkspaceCanvas: React.FC<WorkspaceCanvasProps> = ({
                   onKeyUp={handleSelectText}
                   disabled={isStreaming || Boolean(liveDraft)}
                   spellCheck={false}
+                  rows={Math.max(lineCount, 1)}
+                  style={{ height: `${Math.max(lineCount, 1) * 20 + 24}px` }}
                   placeholder="Write or paste content here, or ask Gemma in Workspace Mode..."
-                  className="flex-1 p-3 bg-transparent text-theme-text placeholder-theme-muted/50 outline-none resize-none leading-5 whitespace-pre overflow-x-auto"
+                  className="flex-1 min-w-0 p-3 bg-transparent text-theme-text placeholder-theme-muted/50 outline-none resize-none leading-5 whitespace-pre overflow-hidden"
                 />
               </div>
             )}

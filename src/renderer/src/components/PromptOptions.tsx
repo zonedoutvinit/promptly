@@ -2,13 +2,7 @@
 import React, { useState, useRef } from "react";
 import { ChevronLeft, ChevronRight, Edit3, ChevronDown } from "lucide-react";
 import { genericOptions } from "@renderer/utils/chatHelpers";
-
-interface PromptOptionsProps {
-  activeTab: "dynamic" | "generic";
-  setActiveTab: (tab: "dynamic" | "generic") => void;
-  dynamicSuggestedPrompts: string[];
-  onSubmit: (promptText: string) => void;
-}
+import { PromptOptionsProps } from "@renderer/types";
 
 export const PromptOptions: React.FC<PromptOptionsProps> = ({
   activeTab,

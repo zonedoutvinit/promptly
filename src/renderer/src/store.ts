@@ -1,52 +1,40 @@
 // src/store.ts
 import { create } from "zustand";
 import {
-  getAllSessions,
-  saveSession,
-  deleteSessionFromDB,
-  ChatSession,
-  ChatMessage,
-} from "./utils/db";
-import { decryptKey, encryptKey } from "./utils/crypto";
+  formatRetrievedContext,
+  indexRagDocument,
+  retrieveRelevantChunks,
+} from "./rag/retriever";
 import { searchWeb } from "./service/webSearch";
+import { decryptKey, encryptKey } from "./utils/crypto";
 import {
-  WorkspaceArtifact,
-  ArtifactVersion,
-  getArtifactsBySession,
-  saveArtifact,
   deleteArtifactFromDB,
+  deleteRagDocumentFromDB,
+  deleteSessionFromDB,
+  getAllSessions,
+  getArtifactsBySession,
+  getRagDocumentsForContext,
+  saveArtifact,
+  saveSession,
 } from "./utils/db";
-import { SelectionRange } from "./components/WorkspaceCanvas";
-
-export type SearchStatus = "idle" | "searching" | "completed" | "error";
-
-export interface Message {
-  id: string;
-  role: "system" | "user" | "assistant";
-  content: string;
-  isPinned?: boolean;
-}
-
-export type ProviderType =
-  "ollama" | "lm-studio" | "openai-compatible" | "gemini";
-
-export interface ProviderConfig {
-  baseUrl: string;
-  encryptedApiKey?: string;
-}
-
-export interface EngineSettings {
-  currentProvider: ProviderType;
-  providers: Record<ProviderType, ProviderConfig>;
-}
-
-export interface SystemProfile {
-  id: string;
-  label: string;
-  icon: string; // Stored as a generic literal matching key mapping dictionaries
-  prompt: string;
-  isSystemDefault?: boolean;
-}
+import { stripHallucinatedArtifactTags } from "./utils/streamSanitizers";
+import {
+  ArtifactVersion,
+  ChatMessage,
+  ChatSession,
+  EngineSettings,
+  HighlightedCitation,
+  ProviderConfig,
+  ProviderType,
+  RagCitation,
+  SearchStatus,
+  SelectionRange,
+  StreamingConfig,
+  SystemProfile,
+  WorkspaceArtifact,
+  WorkspaceLanguage,
+  WorkspacePayloadContext,
+} from "./types";
 
 interface ChatState {
   sessions: ChatSession[];
@@ -139,12 +127,18 @@ interface ChatState {
   };
   applyModelWorkspaceOutput: (
     rawAssistantText: string,
-    source?: "assistant",
+    userPrompt?: string,
   ) => Promise<{
     cleanedChatText: string;
     appliedCount: number;
     failedPatches: number;
   }>;
+  highlightedCitation: HighlightedCitation | null;
+  clearHighlightedCitation: () => void;
+  openRagCitationInCanvas: (
+    citationIndex: number,
+    messageIndex?: number,
+  ) => Promise<void>;
 }
 
 const DEFAULT_SETTINGS: EngineSettings = {
@@ -258,21 +252,6 @@ const getInitialPersonas = (): SystemProfile[] => {
 };
 
 // ================= ADVANCED TELEMETRY PAYLOAD COMPILER =================
-export interface WorkspacePayloadContext {
-  enabled: boolean;
-  systemDirective?: string;
-  activeFile?: {
-    title: string;
-    language: string;
-    content: string;
-  } | null;
-  selection?: {
-    startLine: number;
-    endLine: number;
-    selectedText: string;
-  } | null;
-}
-
 const DEFAULT_SYSTEM_PROMPT =
   "You are an expert AI assistant. Provide precise, technical answers using clear Markdown hierarchy. Be direct, minimize conversational filler, and strictly follow all user constraints.";
 
@@ -386,16 +365,6 @@ const compileTelemetryPayload = (
     ...compiledHistoryContext,
   ];
 };
-
-interface StreamingConfig {
-  sessionId: string;
-  historyForTelemetry: ChatMessage[];
-  controller: AbortController;
-  get: () => any;
-  set: (fn: (state: any) => any) => void;
-  overrides?: Record<string, any>;
-  webContext?: string;
-}
 
 // Helper to build WorkspacePayloadContext from store state
 const getWorkspacePayloadContext = (
@@ -550,8 +519,9 @@ const executeStreamingInference = async ({
               if (s.id !== sessionId) return s;
               const history = [...s.messages];
               if (history.length > 0) {
+                const existingLast = history[history.length - 1];
                 history[history.length - 1] = {
-                  ...history[history.length - 1],
+                  ...existingLast,
                   content: textAccumulator,
                   thinking: thinkingAccumulator,
                   timestamp: Date.now(),
@@ -581,13 +551,20 @@ const executeStreamingInference = async ({
     let finalAssistantContent = textAccumulator;
     let artifactSummary: string | undefined;
 
+    const latestUserPrompt =
+      [...historyForTelemetry].reverse().find((m) => m.role === "user")
+        ?.content || "";
+
     if (
       workspaceContext.enabled &&
       typeof get().applyModelWorkspaceOutput === "function" &&
       textAccumulator.trim()
     ) {
       const { cleanedChatText, appliedCount, failedPatches } =
-        await get().applyModelWorkspaceOutput(textAccumulator);
+        await get().applyModelWorkspaceOutput(
+          textAccumulator,
+          latestUserPrompt,
+        );
 
       if (appliedCount > 0 || failedPatches > 0) {
         finalAssistantContent = cleanedChatText;
@@ -628,10 +605,13 @@ const executeStreamingInference = async ({
     if (matchedSession) {
       const finalizedMessages = [...matchedSession.messages];
       if (finalizedMessages.length > 0) {
+        const previousAssistant =
+          finalizedMessages[finalizedMessages.length - 1];
         finalizedMessages[finalizedMessages.length - 1] = {
-          ...finalizedMessages[finalizedMessages.length - 1],
+          ...previousAssistant,
           content: finalAssistantContent,
           thinking: thinkingAccumulator,
+          citations: previousAssistant.citations,
           ...(artifactSummary ? { artifactSummary } : {}),
           timestamp: Date.now(),
         };
@@ -796,28 +776,6 @@ function applySearchReplacePatch(
   return { nextContent: sourceContent, matched: false };
 }
 
-export const stripHallucinatedArtifactTags = (input: string): string => {
-  return input
-    .replace(/<\/?(?:artifact|artifact_content)[^>]*>/gi, "")
-    .replace(/^```(?:xml|html|markdown|text|python)?\s*$/gim, "")
-    .replace(/^```\s*$/gim, "");
-};
-
-export type WorkspaceLanguage =
-  | "markdown"
-  | "python"
-  | "typescript"
-  | "tsx"
-  | "javascript"
-  | "jsx"
-  | "html"
-  | "css"
-  | "json"
-  | "sql"
-  | "bash"
-  | "rust"
-  | "go";
-
 export const normalizeWorkspaceLanguage = (
   lang?: string,
 ): WorkspaceLanguage => {
@@ -907,6 +865,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abortControllers: {},
   isFetchingModels: false,
   providerError: null,
+  highlightedCitation: null,
+  clearHighlightedCitation: () => set({ highlightedCitation: null }),
 
   search: {
     enabled: false,
@@ -1515,37 +1475,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       : get().sessions.find((s) => s.id === sessionId)?.title ||
         "Active Discussion";
 
-    const transientSessionRecord: ChatSession = {
-      id: sessionId,
-      title: initialTitle,
-      model,
-      messages: [
-        ...updatedMessagesWithUser,
-        {
-          role: "assistant",
-          content: "",
-          thinking: "",
-          timestamp: Date.now(),
-          isPinned: false,
-          isPruned: false,
-        },
-      ],
-      updatedAt: Date.now(),
-    };
-
-    // STABILITY ENHANCEMENT: Commit session shell atomic write before execution pipeline starts
-    await saveSession(transientSessionRecord);
-    await get().loadSessionsFromStorage();
-
-    set((state) => ({
-      currentSessionId: sessionId,
-      messages: transientSessionRecord.messages,
-      isLoading: true,
-      abortControllers: { ...state.abortControllers, [sessionId]: controller },
-    }));
-
-    // --- NEW WEB SEARCH INTERCEPTION ---
+    // --- WEB SEARCH + LOCAL RAG INTERCEPTION ---
     let injectedWebContext: string | undefined = undefined;
+    let injectedRagContext: string | undefined = undefined;
+    let ragCitations: RagCitation[] = [];
 
     if (search?.enabled) {
       set((state) => ({ search: { ...state.search, status: "searching" } }));
@@ -1573,14 +1506,79 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     try {
-      // Hand off execution cleanly, adding webContext to the parameters
+      const [matchedChunks, contextDocs] = await Promise.all([
+        retrieveRelevantChunks(content, {
+          sessionId,
+          topK: 4,
+        }),
+        getRagDocumentsForContext(sessionId),
+      ]);
+
+      if (matchedChunks.length > 0) {
+        const docArtifactMap = new Map(
+          contextDocs.map((d) => [d.id, d.artifactId]),
+        );
+
+        injectedRagContext = formatRetrievedContext(matchedChunks);
+        ragCitations = matchedChunks.map((m) => ({
+          citationIndex: m.citationIndex,
+          docId: m.chunk.docId,
+          artifactId: docArtifactMap.get(m.chunk.docId),
+          title: m.chunk.title,
+          chunkIndex: m.chunk.chunkIndex,
+          text: m.chunk.text,
+          score: m.score,
+        }));
+      }
+    } catch (ragError) {
+      console.error(
+        "Local RAG retrieval failed, proceeding gracefully:",
+        ragError,
+      );
+    }
+
+    const assistantPlaceholder: ChatMessage = {
+      role: "assistant",
+      content: "",
+      thinking: "",
+      timestamp: Date.now(),
+      isPinned: false,
+      isPruned: false,
+      citations: ragCitations.length > 0 ? ragCitations : undefined,
+    };
+
+    const transientSessionRecord: ChatSession = {
+      id: sessionId,
+      title: initialTitle,
+      model,
+      messages: [...updatedMessagesWithUser, assistantPlaceholder],
+      updatedAt: Date.now(),
+    };
+
+    // STABILITY ENHANCEMENT: Commit session shell atomic write before execution pipeline starts
+    await saveSession(transientSessionRecord);
+    await get().loadSessionsFromStorage();
+
+    set((state) => ({
+      currentSessionId: sessionId,
+      messages: transientSessionRecord.messages,
+      isLoading: true,
+      abortControllers: { ...state.abortControllers, [sessionId]: controller },
+    }));
+
+    const combinedContext =
+      [injectedRagContext, injectedWebContext]
+        .filter(Boolean)
+        .join("\n\n---\n\n") || undefined;
+
+    try {
       await executeStreamingInference({
         sessionId,
         historyForTelemetry: updatedMessagesWithUser,
         controller,
         get,
         set,
-        webContext: injectedWebContext,
+        webContext: combinedContext,
       });
     } catch (inferenceError) {
       console.error("Streaming inference execution error:", inferenceError);
@@ -1799,6 +1797,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       workspaceEnabled: true,
     }));
 
+    if (content.trim()) {
+      void indexRagDocument({
+        id: `artifact-${artifact.id}`,
+        sessionId,
+        scope: "session",
+        title: artifact.title,
+        sourceKind: source === "preprocess" ? "file" : "canvas",
+        content: artifact.content,
+        artifactId: artifact.id,
+      }).catch((err) => console.error("RAG artifact index failed:", err));
+    }
+
     return artifact;
   },
 
@@ -1809,10 +1819,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
         a.id === updated.id ? updated : a,
       ),
     }));
+
+    if (updated.content.trim()) {
+      void indexRagDocument({
+        id: `artifact-${updated.id}`,
+        sessionId: updated.sessionId,
+        scope: "session",
+        title: updated.title,
+        sourceKind: "canvas",
+        content: updated.content,
+        artifactId: updated.id,
+      }).catch((err) => console.error("RAG artifact re-index failed:", err));
+    } else {
+      void deleteRagDocumentFromDB(`artifact-${updated.id}`).catch(() => {});
+    }
   },
 
   deleteWorkspaceArtifact: async (id: string) => {
     await deleteArtifactFromDB(id);
+    await deleteRagDocumentFromDB(`artifact-${id}`).catch(() => {});
     set((state) => {
       const remaining = state.artifacts.filter((a) => a.id !== id);
       return {
@@ -1850,11 +1875,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ? `\n[USER SELECTED LINES ${activeWorkspaceSelection.startLine}-${activeWorkspaceSelection.endLine}]:\n\`\`\`${activeArtifact.language}\n${activeWorkspaceSelection.selectedText}\n\`\`\`\n`
       : "";
 
-    const enrichedUserPrompt = `[ACTIVE WORKSPACE FILE: "${activeArtifact.title}" | Language: ${activeArtifact.language}]
-  \`\`\`${activeArtifact.language}
-  ${activeArtifact.content}
-  \`\`\`${selectionBlock}
-  User Request: ${userPrompt}`;
+    const enrichedUserPrompt = `[ACTIVE WORKSPACE FILE: "${activeArtifact.title}" | Language: ${activeArtifact.language}] \`\`\`${activeArtifact.language} ${activeArtifact.content} \`\`\`${selectionBlock} User Request: ${userPrompt}`;
 
     return {
       systemDirective: WORKSPACE_SYSTEM_DIRECTIVE,
@@ -1862,7 +1883,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     };
   },
 
-  applyModelWorkspaceOutput: async (rawAssistantText: string) => {
+  applyModelWorkspaceOutput: async (
+    rawAssistantText: string,
+    userPrompt = "",
+  ) => {
     const { workspaceEnabled, artifacts } = get();
     if (!workspaceEnabled) {
       return {
@@ -1996,14 +2020,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
-    // 4. Fallback for 2B models: route a fenced code block into the active artifact,
-    // or create a new workspace artifact if none exists yet.
+    // 4. Fallback for 2B models: only route a fenced code block into Canvas
+    // when the user explicitly asked to create/edit/write/patch/generate code or a file.
+    const wantsArtifactMutation =
+      /\b(create|write|edit|update|modify|patch|refactor|generate|draft|build|save)\b.*\b(file|code|script|component|function|html|css|json|markdown|md|canvas|artifact)\b/i.test(
+        userPrompt,
+      );
+
     const latestAfterTags = get().artifacts;
     const activeTarget =
       latestAfterTags.find((a) => a.id === get().activeArtifactId) ||
       latestAfterTags[0];
 
-    if (appliedCount === 0 && failedPatches === 0) {
+    if (appliedCount === 0 && failedPatches === 0 && wantsArtifactMutation) {
       const fenceRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/;
       const fenceMatch = fenceRegex.exec(cleanedText);
 
@@ -2054,5 +2083,120 @@ export const useChatStore = create<ChatState>((set, get) => ({
       appliedCount,
       failedPatches,
     };
+  },
+
+  openRagCitationInCanvas: async (
+    citationIndex: number,
+    messageIndex?: number,
+  ) => {
+    const state = get();
+    const targetMsg =
+      typeof messageIndex === "number" && state.messages[messageIndex]
+        ? state.messages[messageIndex]
+        : [...state.messages]
+            .reverse()
+            .find((m) => m.role === "assistant" && m.citations?.length);
+
+    const citation = targetMsg?.citations?.find(
+      (c) => c.citationIndex === citationIndex,
+    );
+    if (!citation) return;
+
+    // If the chunk came from a Canvas artifact currently loaded, focus it directly
+    if (
+      citation.artifactId &&
+      state.artifacts.some((a) => a.id === citation.artifactId)
+    ) {
+      set({
+        workspaceEnabled: true,
+        activeArtifactId: citation.artifactId,
+        highlightedCitation: {
+          artifactId: citation.artifactId,
+          citationIndex: citation.citationIndex,
+          title: citation.title,
+          text: citation.text,
+          chunkIndex: citation.chunkIndex,
+          score: citation.score,
+          nonce: Date.now(),
+        },
+      });
+      return;
+    }
+
+    const sessionId = state.currentSessionId;
+    if (!sessionId) return;
+
+    const sourceTitle = `Source ${citation.citationIndex}: ${citation.title}`;
+    const sourceContent = [
+      `# ${citation.title}`,
+      `- **Citation:** [Source ${citation.citationIndex}]`,
+      `- **Chunk:** #${citation.chunkIndex + 1}`,
+      `- **Relevance Score:** ${(citation.score * 100).toFixed(1)}%`,
+      "",
+      "---",
+      "",
+      citation.text,
+    ].join("\n");
+
+    const now = Date.now();
+    const existingSourceArtifact = state.artifacts.find(
+      (a) => a.type === "rag_source" && a.title === sourceTitle,
+    );
+
+    if (existingSourceArtifact) {
+      const nextVersion = existingSourceArtifact.currentVersion + 1;
+      const updatedArtifact: WorkspaceArtifact = {
+        ...existingSourceArtifact,
+        content: sourceContent,
+        currentVersion: nextVersion,
+        updatedAt: now,
+        versions: [
+          ...existingSourceArtifact.versions,
+          {
+            version: nextVersion,
+            content: sourceContent,
+            timestamp: now,
+            source: "preprocess",
+            summary: `Viewed [Source ${citation.citationIndex}] chunk #${citation.chunkIndex + 1}`,
+          },
+        ],
+      };
+      await saveArtifact(updatedArtifact);
+      set((prev) => ({
+        workspaceEnabled: true,
+        activeArtifactId: updatedArtifact.id,
+        artifacts: prev.artifacts.map((a) =>
+          a.id === updatedArtifact.id ? updatedArtifact : a,
+        ),
+      }));
+      return;
+    }
+
+    const newSourceArtifact: WorkspaceArtifact = {
+      id: crypto.randomUUID(),
+      sessionId,
+      title: sourceTitle,
+      language: "markdown",
+      type: "rag_source",
+      content: sourceContent,
+      versions: [
+        {
+          version: 1,
+          content: sourceContent,
+          timestamp: now,
+          source: "preprocess",
+          summary: `Opened [Source ${citation.citationIndex}] chunk #${citation.chunkIndex + 1}`,
+        },
+      ],
+      currentVersion: 1,
+      updatedAt: now,
+    };
+
+    await saveArtifact(newSourceArtifact);
+    set((prev) => ({
+      workspaceEnabled: true,
+      activeArtifactId: newSourceArtifact.id,
+      artifacts: [...prev.artifacts, newSourceArtifact],
+    }));
   },
 }));

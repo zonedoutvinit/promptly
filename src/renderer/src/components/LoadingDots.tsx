@@ -1,9 +1,5 @@
+import { LoadingDotsProps } from "@renderer/types";
 import React from "react";
-
-interface LoadingDotsProps {
-  className?: string;
-  dotClassName?: string;
-}
 
 export const LoadingDots: React.FC<LoadingDotsProps> = ({
   className = "",

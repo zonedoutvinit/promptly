@@ -1,22 +1,21 @@
 // src/components/WelcomeModal.tsx
-import React, { useState } from "react";
-import { useChatStore, ProviderType } from "../store";
 import {
-  Cpu,
-  Zap,
-  HelpCircle,
-  Key,
   ArrowRight,
   Check,
-  Shield,
+  Cpu,
+  HelpCircle,
+  Key,
   Layers,
+  Shield,
+  Zap,
 } from "lucide-react";
-
-interface WelcomeModalProps {
-  onComplete: () => void;
-}
-
-type OnboardingStep = "intro" | "setup" | "done";
+import React, { useState } from "react";
+import { useChatStore } from "../store";
+import {
+  ProviderType,
+  OnboardingStep,
+  WelcomeModalProps,
+} from "@renderer/types";
 
 export const WelcomeModal: React.FC<WelcomeModalProps> = ({ onComplete }) => {
   const { updateProviderConfig } = useChatStore();
