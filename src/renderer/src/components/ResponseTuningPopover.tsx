@@ -2,24 +2,7 @@
 import React, { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Settings, SlidersHorizontal, HelpCircle } from "lucide-react";
-
-export interface TuningOverrides {
-  temperature: number;
-  topP: number;
-  frequencyPenalty: number;
-  presencePenalty: number;
-}
-
-interface ResponseTuningPopoverProps {
-  idx: number;
-  isTuning: boolean;
-  popoverDirection: "above" | "below";
-  popoverRef: React.RefObject<HTMLDivElement | null>;
-  values: TuningOverrides;
-  onChange: (next: TuningOverrides) => void;
-  onToggle: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  onRegenerate: () => void;
-}
+import { ResponseTuningPopoverProps } from "@renderer/types";
 
 export const ResponseTuningPopover: React.FC<ResponseTuningPopoverProps> = ({
   idx,

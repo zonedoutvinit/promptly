@@ -430,7 +430,7 @@ export default function App() {
   const handleSidebarSelectSession = useCallback(
     (sessionId: string) => {
       selectSession(sessionId);
-      setIsWorkspaceInspectMode(true);
+      setIsWorkspaceInspectMode(false);
     },
     [selectSession],
   );

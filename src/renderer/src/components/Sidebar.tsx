@@ -1,28 +1,17 @@
 // src/components/Sidebar.tsx
-import React, { useState, useEffect, useRef } from "react";
-import {
-  Plus,
-  X,
-  Trash2,
-  Settings,
-  FileText,
-  Braces,
-  MoreVertical,
-} from "lucide-react";
-import { SettingsModal } from "./SettingsModal";
-import { ChatSession } from "@renderer/utils/db";
 import { exportToJSON, exportToMarkdown } from "@renderer/utils/exporter";
-
-interface SidebarProps {
-  isOpen: boolean;
-  setIsOpen: (open: boolean) => void;
-  sessions: ChatSession[];
-  currentSessionId: string | null;
-  onSelectSession: (id: string) => void;
-  onSelectArtifact?: (id: string) => void;
-  onDeleteSession: (id: string) => void;
-  onNewChat: () => void;
-}
+import {
+  Braces,
+  FileText,
+  MoreVertical,
+  Plus,
+  Settings,
+  Trash2,
+  X,
+} from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { SettingsModal } from "./SettingsModal";
+import { ChatSession, SidebarProps } from "@renderer/types";
 
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
